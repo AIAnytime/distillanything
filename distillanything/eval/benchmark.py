@@ -45,6 +45,12 @@ def benchmark_model(
     model = model.to(device)
     model.eval()
 
+    # Chat-tuned models EOS almost immediately on raw text; render the prompt the
+    # way the model is actually served so throughput numbers reflect real use.
+    if tokenizer.chat_template:
+        prompt = tokenizer.apply_chat_template(
+            [{"role": "user", "content": prompt}], tokenize=False, add_generation_prompt=True
+        )
     inputs = tokenizer(prompt, return_tensors="pt").to(device)
     pad_id = tokenizer.pad_token_id or tokenizer.eos_token_id
 
