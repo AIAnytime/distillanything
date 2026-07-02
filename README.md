@@ -58,26 +58,9 @@ Big models know things. Small models ship. Distill Anything covers the **whole d
 
 ## How it works (30 seconds)
 
-```
- Seed prompts (.txt / .jsonl)
-      │
-      ▼
- Teacher ──────────── claude · openai:<m> · ollama:<m> · hf:<repo>
-      │  generate + expand + dedup + judge-score
-      ▼
- Curated dataset (JSONL)
-      │
-      ▼
- Distillation engine
-      ├─ logit KD    teacher logits → KL/JSD on every response token   (hf: teachers)
-      └─ seqKD       teacher text   → cross-entropy fine-tune          (any teacher)
-      │
-      ▼
- Judge (blind A/B, position-swapped)  →  win / tie / lose
-      │
-      ▼
- REPORT.md — "student keeps X% of teacher quality at 1/Nth the size and cost"
-```
+<p align="center">
+  <img src="https://raw.githubusercontent.com/AIAnytime/distillanything/main/media/distil.png" alt="The pipeline: seed prompts → teacher (claude / openai / ollama / hf) with generate + expand + dedup + judge-score → curated JSONL dataset → distillation engine (logit KD for hf teachers, seqKD for any teacher) → blind position-swapped judge (win/tie/lose) → REPORT.md with quality retention, size, latency, and cost" width="560">
+</p>
 
 One `DistillConfig` YAML describes the whole run; the same recipe format works for a 135M student on a MacBook and a 7B student on an A100.
 
