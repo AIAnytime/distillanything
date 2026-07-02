@@ -28,8 +28,18 @@ class HFTeacher(Teacher):
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
+        # Teachers only ever run inference, so half precision on GPU/MPS halves
+        # their memory — the difference between a 3B teacher fitting next to a
+        # 1.5B student on a 16GB laptop or not. The trainer upcasts logits to
+        # fp32 before computing KL.
+        if self.device.type == "cuda":
+            dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+        elif self.device.type == "mps":
+            dtype = torch.float16
+        else:
+            dtype = None
         self.model = AutoModelForCausalLM.from_pretrained(
-            model_name_or_path, trust_remote_code=trust_remote_code
+            model_name_or_path, trust_remote_code=trust_remote_code, torch_dtype=dtype
         )
         self.model.to(self.device)
         self.model.eval()

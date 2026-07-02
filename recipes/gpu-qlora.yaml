@@ -1,0 +1,36 @@
+# QLoRA distillation on a single CUDA GPU: the student's frozen base loads in
+# 4-bit NF4 (bitsandbytes), adapters train on top. CUDA ONLY — bitsandbytes has
+# no Apple Silicon backend; on a Mac use recipes/mac-lora.yaml instead.
+#
+#   pip install "distill-anything[qlora]"
+#   distill train recipes/gpu-qlora.yaml
+#
+# QLoRA checkpoints save adapters only (merging into a 4-bit base isn't
+# supported) — every distill command loads adapter dirs transparently.
+mode: logit
+teacher:
+  spec: hf:Qwen/Qwen2.5-7B-Instruct     # bf16 on GPU, inference only
+student:
+  model: Qwen/Qwen2.5-3B-Instruct
+  lora:
+    r: 32
+    alpha: 64
+    dropout: 0.05
+    qlora: true
+data:
+  path: data/train.jsonl
+  max_seq_len: 1024
+  eval_fraction: 0.05
+loss:
+  kind: forward_kl
+  temperature: 2.0
+  alpha: 0.5
+  top_k: 128
+train:
+  output_dir: runs/gpu-qlora
+  lr: 2.0e-4
+  epochs: 2
+  batch_size: 2
+  grad_accum: 8
+  gradient_checkpointing: true
+  log_every: 10

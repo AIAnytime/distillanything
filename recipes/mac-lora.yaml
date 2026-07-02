@@ -1,0 +1,39 @@
+# LoRA distillation on a 16GB laptop: a 3B teacher (fp16) distills into a 1.5B
+# student with LoRA adapters — only ~0.5% of the student's params train, so there
+# is no optimizer state for the frozen base. Same tokenizer family (Qwen2.5), so
+# white-box logit KD is valid.
+#
+#   pip install "distill-anything[lora]"
+#   distill generate seeds.txt --teacher hf:Qwen/Qwen2.5-3B-Instruct --out data/train.jsonl
+#   distill train recipes/mac-lora.yaml
+#
+# Memory notes: ~6GB teacher (fp16) + ~6GB student (fp32) + activations. Keep
+# batch_size 1, gradient_checkpointing on, and top_k KD. Close Chrome.
+mode: logit
+teacher:
+  spec: hf:Qwen/Qwen2.5-3B-Instruct
+student:
+  model: Qwen/Qwen2.5-1.5B-Instruct
+  lora:
+    r: 16
+    alpha: 32
+    dropout: 0.05
+    # target_modules: [q_proj, v_proj]   # default: peft auto-detects per architecture
+data:
+  path: data/train.jsonl
+  max_seq_len: 512
+  eval_fraction: 0.05
+loss:
+  kind: forward_kl
+  temperature: 2.0
+  alpha: 0.5
+  top_k: 128            # truncated KD — big memory saver on Qwen's 150k vocab
+train:
+  output_dir: runs/mac-lora
+  lr: 2.0e-4            # LoRA trains hotter than full fine-tuning
+  epochs: 2
+  batch_size: 1
+  grad_accum: 16
+  gradient_checkpointing: true
+  merge_lora: true      # output is a plain HF checkpoint; false = tiny adapter-only save
+  log_every: 5

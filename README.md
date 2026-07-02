@@ -16,7 +16,7 @@
   <a href="https://pypi.org/project/distill-anything/"><img src="https://img.shields.io/pypi/v/distill-anything.svg" alt="PyPI"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-green" alt="License: Apache 2.0"></a>
-  <a href="#development"><img src="https://img.shields.io/badge/tests-31%20passing%20offline-brightgreen" alt="Tests"></a>
+  <a href="#development"><img src="https://img.shields.io/badge/tests-36%20passing%20offline-brightgreen" alt="Tests"></a>
   <a href="#whats-real-today-vs-the-vision"><img src="https://img.shields.io/badge/status-alpha-orange" alt="Status: alpha"></a>
   <a href="https://github.com/astral-sh/ruff"><img src="https://img.shields.io/badge/code%20style-ruff-261230" alt="Code style: ruff"></a>
 </p>
@@ -54,7 +54,8 @@ Big models know things. Small models ship. Distill Anything covers the **whole d
 - **Black-box seqKD** — no logits needed; fine-tune on what an API teacher wrote
 - **LLM-as-judge eval** — blind A/B, position-swapped to kill judge bias → win/tie/lose and one headline number: *quality retention*
 - **Report card** — `distill report` writes a shareable `REPORT.md`: quality vs the teacher, p50/p95 latency, tokens/s, memory, $ per 1K tokens
-- **Hardware-aware** — CUDA (bf16) → Apple Silicon MPS → CPU, detected automatically
+- **LoRA / QLoRA students** — freeze the base, train adapters: 1–3B students on a 16GB laptop (`[lora]` extra); 4-bit QLoRA on CUDA (`[qlora]`)
+- **Hardware-aware** — CUDA (bf16) → Apple Silicon MPS → CPU, detected automatically; teachers load in half precision on GPU/MPS
 
 ## How it works (30 seconds)
 
@@ -124,7 +125,7 @@ PASS: loss 2.237 -> 2.077 over 30 steps
 
 This is the quickstart, not a leaderboard claim — 60 records and 8 optimizer steps prove the loop runs on a laptop, not the ceiling of the method.
 
-**Honest-by-construction evals:** the judge sees answers blind and judges each pair twice with positions swapped — a judge that always prefers "Answer A" nets out to a tie (that exact adversarial case is in the test suite). Disagreements and unparseable verdicts count as ties, never wins. 31 tests run fully offline against tiny random models.
+**Honest-by-construction evals:** the judge sees answers blind and judges each pair twice with positions swapped — a judge that always prefers "Answer A" nets out to a tie (that exact adversarial case is in the test suite). Disagreements and unparseable verdicts count as ties, never wins. 36 tests run fully offline against tiny random models.
 
 ## The report card
 
@@ -203,6 +204,24 @@ student.learn(teacher="claude", dataset="data/prompts_only.jsonl")   # generates
 print(student.generate("Explain what a database index is."))
 print(student.benchmark())
 ```
+
+### LoRA & QLoRA — big students on small hardware
+
+Full fine-tuning caps laptop students around ~360M (AdamW keeps two moments per
+weight). LoRA freezes the base and trains ~0.5% of the params, so a **1.5B student
+learns from a 3B teacher on 16GB of RAM** — see [`recipes/mac-lora.yaml`](recipes/mac-lora.yaml):
+
+```python
+student = Student("Qwen/Qwen2.5-1.5B-Instruct", lora={"r": 16, "alpha": 32})
+student.learn(teacher="hf:Qwen/Qwen2.5-3B-Instruct", dataset="data/train.jsonl",
+              gradient_checkpointing=True, batch_size=1, grad_accum=16)
+```
+
+Adapters merge into the base on save by default, so the output stays a plain HF
+checkpoint (set `merge_lora: false` for tiny adapter-only saves — every `distill`
+command loads those transparently). On CUDA, add `"qlora": True` to load the frozen
+base in 4-bit ([`recipes/gpu-qlora.yaml`](recipes/gpu-qlora.yaml)); QLoRA is CUDA-only
+because bitsandbytes has no Apple Silicon backend. Install: `pip install "distill-anything[lora]"`.
 
 ## When to use · When to skip
 
@@ -283,7 +302,7 @@ If you already have a curated dataset and a GPU and just want a training loop, T
 
 Beyond closing the 🗺️ gaps in the status table:
 
-- [ ] **LoRA/QLoRA students** — distill into 1–3B students on 16GB of RAM *(next up)*
+- [x] **LoRA/QLoRA students** — distill into 1–3B students on 16GB of RAM *(shipped in v0.2)*
 - [ ] Hidden-state / feature KD with learned projectors
 - [ ] Cross-tokenizer logit distillation (ULD)
 - [ ] Multi-teacher voting and ensembling
@@ -296,7 +315,7 @@ Everything in this repo is and stays Apache-2.0. A hosted layer (GPU orchestrati
 
 ```bash
 uv venv && uv pip install -e ".[dev]"
-pytest            # 31 tests, fully offline (tiny random models, fake judges)
+pytest            # 36 tests, fully offline (tiny random models, fake judges)
 distill smoke     # end-to-end pipeline check on your hardware
 ```
 

@@ -25,9 +25,27 @@ class TeacherConfig(BaseModel):
     concurrency: int = 4  # parallel requests for API teachers
 
 
+class LoraSettings(BaseModel):
+    """LoRA adapter training: freeze the base model, train small low-rank adapters.
+
+    This is what makes 1-3B students practical on a 16GB laptop — no optimizer
+    state or gradients for the base weights. ``qlora: true`` additionally loads
+    the frozen base in 4-bit NF4 (CUDA only; bitsandbytes has no MPS backend).
+    Requires: pip install "distill-anything[lora]"
+    """
+
+    r: int = 16
+    alpha: int = 32
+    dropout: float = 0.05
+    # None = let peft pick the projection layers for known architectures.
+    target_modules: Optional[list[str]] = None
+    qlora: bool = False
+
+
 class StudentConfig(BaseModel):
     model: str = "HuggingFaceTB/SmolLM2-135M-Instruct"
     trust_remote_code: bool = False
+    lora: Optional[LoraSettings] = None
 
 
 class DataConfig(BaseModel):
@@ -68,6 +86,12 @@ class TrainConfig(BaseModel):
     seed: int = 42
     log_every: int = 10
     eval_every: Optional[int] = None  # steps; None = eval at end only
+    # Trade compute for memory — recompute activations in backward. Recommended
+    # for LoRA students >= 1B on laptops.
+    gradient_checkpointing: bool = False
+    # After LoRA training, merge adapters into the base so output_dir is a plain
+    # HF checkpoint. Set False to save only the (tiny) adapters. QLoRA never merges.
+    merge_lora: bool = True
 
 
 class DistillConfig(BaseModel):

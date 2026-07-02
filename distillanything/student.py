@@ -13,7 +13,7 @@ from typing import Optional
 
 from rich.console import Console
 
-from distillanything.config import DistillConfig
+from distillanything.config import DistillConfig, LoraSettings
 from distillanything.data.filters import clean_records
 from distillanything.data.formats import load_records, save_records
 from distillanything.data.generate import generate_dataset
@@ -37,17 +37,37 @@ def _split(records: list[dict], eval_fraction: float, seed: int) -> tuple[list[d
 
 
 class Student:
-    """A small model that learns from a bigger one."""
+    """A small model that learns from a bigger one.
 
-    def __init__(self, model: str = "HuggingFaceTB/SmolLM2-135M-Instruct", trust_remote_code: bool = False):
-        from transformers import AutoModelForCausalLM, AutoTokenizer
+    Pass ``lora=`` (a LoraSettings or plain dict like ``{"r": 16}``) to train
+    adapters instead of full weights — the practical path to 1-3B students on a
+    16GB laptop. ``lora={"qlora": True}`` additionally loads the frozen base in
+    4-bit (CUDA only).
+    """
 
+    def __init__(
+        self,
+        model: str = "HuggingFaceTB/SmolLM2-135M-Instruct",
+        trust_remote_code: bool = False,
+        lora: LoraSettings | dict | None = None,
+    ):
+        from distillanything.loading import load_model_and_tokenizer, load_student_model
+
+        if isinstance(lora, dict):
+            lora = LoraSettings.model_validate(lora)
+        self._lora = lora
         console.print(f"Loading student [cyan]{model}[/] on {device_summary()}")
         self.model_name = model
-        self.tokenizer = AutoTokenizer.from_pretrained(model, trust_remote_code=trust_remote_code)
-        if self.tokenizer.pad_token is None:
-            self.tokenizer.pad_token = self.tokenizer.eos_token
-        self.model = AutoModelForCausalLM.from_pretrained(model, trust_remote_code=trust_remote_code)
+        if lora is not None:
+            from transformers import AutoTokenizer
+
+            self.tokenizer = AutoTokenizer.from_pretrained(model, trust_remote_code=trust_remote_code)
+            if self.tokenizer.pad_token is None:
+                self.tokenizer.pad_token = self.tokenizer.eos_token
+            self.model = load_student_model(model, lora, trust_remote_code)
+        else:
+            # Also handles adapter-only checkpoints (merged on load).
+            self.model, self.tokenizer = load_model_and_tokenizer(model, trust_remote_code)
 
     def learn(
         self,
@@ -79,6 +99,18 @@ class Student:
                 setattr(cfg.data, key, value)
             else:
                 raise TypeError(f"Unknown override {key!r}")
+
+        # Reconcile LoRA settings between constructor and recipe.
+        if cfg.student.lora is None and self._lora is not None:
+            cfg.student.lora = self._lora
+        if cfg.student.lora is not None and not hasattr(self.model, "peft_config"):
+            if cfg.student.lora.qlora:
+                raise RuntimeError(
+                    "QLoRA must be applied at load time: Student(model, lora={'qlora': True, ...})"
+                )
+            from distillanything.loading import apply_lora
+
+            self.model = apply_lora(self.model, cfg.student.lora)
 
         teacher_obj = resolve_teacher(cfg.teacher.spec, concurrency=cfg.teacher.concurrency)
 

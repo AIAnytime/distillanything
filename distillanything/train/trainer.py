@@ -55,7 +55,11 @@ class DistillTrainer:
         self.cfg = cfg
         self.device = best_device()
         self.tokenizer = tokenizer
-        self.student = student_model.to(self.device)
+        # 4-bit (QLoRA) models are placed by device_map at load time; .to() would raise.
+        if getattr(student_model, "is_quantized", False):
+            self.student = student_model
+        else:
+            self.student = student_model.to(self.device)
         self.teacher = teacher_model
         if cfg.mode == "logit":
             if self.teacher is None:
@@ -100,8 +104,19 @@ class DistillTrainer:
         total_steps = cfg.train.max_steps or steps_per_epoch * cfg.train.epochs
         warmup_steps = int(total_steps * cfg.train.warmup_ratio)
 
+        if cfg.train.gradient_checkpointing:
+            self.student.gradient_checkpointing_enable()
+            if hasattr(self.student, "enable_input_require_grads"):
+                # Required for checkpointing under PEFT: inputs must carry grad
+                # so the recomputed graph reaches the (frozen-base) adapters.
+                self.student.enable_input_require_grads()
+
+        # Only trainable params (with LoRA that's the adapters — the reason a 1-3B
+        # student fits on a laptop: no AdamW moments for frozen base weights).
         optimizer = torch.optim.AdamW(
-            self.student.parameters(), lr=cfg.train.lr, weight_decay=cfg.train.weight_decay
+            (p for p in self.student.parameters() if p.requires_grad),
+            lr=cfg.train.lr,
+            weight_decay=cfg.train.weight_decay,
         )
         scheduler = _cosine_with_warmup(optimizer, warmup_steps, total_steps)
         amp_dtype = autocast_dtype(self.device)
@@ -138,10 +153,12 @@ class DistillTrainer:
                     ce = out.loss
                     if cfg.mode == "logit" and cfg.loss.alpha > 0:
                         with torch.no_grad():
+                            # .float(): teachers may run in fp16/bf16 to save memory;
+                            # KL in half precision is numerically unstable.
                             teacher_logits = self.teacher(
                                 input_ids=batch["input_ids"],
                                 attention_mask=batch["attention_mask"],
-                            ).logits
+                            ).logits.float()
                         kd = kd_loss(
                             out.logits,
                             teacher_logits,
@@ -239,6 +256,17 @@ class DistillTrainer:
     def save(self, output_dir: str, results: Optional[dict] = None) -> None:
         out = Path(output_dir)
         out.mkdir(parents=True, exist_ok=True)
+        is_peft = hasattr(self.student, "merge_and_unload")
+        is_qlora = self.cfg.student.lora is not None and self.cfg.student.lora.qlora
+        if is_peft and self.cfg.train.merge_lora and not is_qlora:
+            # Fold adapters into the base: output_dir becomes a plain HF checkpoint
+            # that loads/deploys anywhere, no peft required downstream.
+            console.print("Merging LoRA adapters into the base model...")
+            self.student = self.student.merge_and_unload()
+        elif is_peft:
+            # Adapter-only save (tiny). QLoRA always lands here — merging into a
+            # 4-bit base isn't supported.
+            console.print("Saving LoRA adapters only (load via AutoPeftModelForCausalLM)")
         self.student.save_pretrained(out)
         if self.tokenizer is not None:
             try:

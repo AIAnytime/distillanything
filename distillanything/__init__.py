@@ -6,6 +6,7 @@ Generate data from teachers -> distill students -> evaluate -> benchmark -> depl
 from distillanything.config import (
     DataConfig,
     DistillConfig,
+    LoraSettings,
     LossConfig,
     StudentConfig,
     TeacherConfig,
@@ -13,13 +14,14 @@ from distillanything.config import (
 )
 from distillanything.student import Student
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "Student",
     "DistillConfig",
     "TeacherConfig",
     "StudentConfig",
+    "LoraSettings",
     "DataConfig",
     "LossConfig",
     "TrainConfig",

@@ -141,18 +141,17 @@ def build_report(
     (i.e. what the teacher originally said); otherwise ``teacher`` is queried.
     """
     import torch
-    from transformers import AutoModelForCausalLM, AutoTokenizer
 
     from distillanything.hardware import best_device
+    from distillanything.loading import load_model_and_tokenizer
 
     run_dir = Path(run_dir)
     device = best_device()
 
     console.print(f"Loading student from [cyan]{run_dir}[/]")
-    tokenizer = AutoTokenizer.from_pretrained(run_dir)
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
-    student = AutoModelForCausalLM.from_pretrained(run_dir).to(device)
+    # Handles both merged checkpoints and LoRA adapter-only saves.
+    student, tokenizer = load_model_and_tokenizer(str(run_dir))
+    student = student.to(device)
     student.eval()
 
     teacher_obj = resolve_teacher(teacher) if isinstance(teacher, str) else teacher

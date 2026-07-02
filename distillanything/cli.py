@@ -72,7 +72,11 @@ def train(recipe: str = typer.Argument(..., help="Path to a recipe YAML (see `di
     from distillanything.student import Student
 
     cfg = DistillConfig.from_yaml(recipe)
-    student = Student(cfg.student.model, trust_remote_code=cfg.student.trust_remote_code)
+    student = Student(
+        cfg.student.model,
+        trust_remote_code=cfg.student.trust_remote_code,
+        lora=cfg.student.lora,
+    )
     results = student.learn(
         teacher=cfg.teacher.spec, dataset=cfg.data.path, mode=cfg.mode, config=cfg
     )
@@ -91,14 +95,10 @@ def benchmark(
     ),
 ):
     """Measure latency (p50/p95), throughput, memory, footprint, and cost of a model."""
-    from transformers import AutoModelForCausalLM, AutoTokenizer
-
     from distillanything.eval.benchmark import benchmark_model
+    from distillanything.loading import load_model_and_tokenizer
 
-    tokenizer = AutoTokenizer.from_pretrained(model)
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
-    loaded = AutoModelForCausalLM.from_pretrained(model)
+    loaded, tokenizer = load_model_and_tokenizer(model)
     metrics = benchmark_model(
         loaded,
         tokenizer,
