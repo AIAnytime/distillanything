@@ -40,15 +40,29 @@ def generate(
     max_tokens: int = typer.Option(512, help="Max tokens per teacher response"),
     expand: int = typer.Option(0, help="Also generate N new prompts per seed (self-instruct lite)"),
     concurrency: int = typer.Option(4, help="Parallel requests for API teachers"),
+    judge: Optional[str] = typer.Option(None, help="Judge spec to quality-score records (e.g. claude)"),
+    min_score: int = typer.Option(7, help="Drop records the judge scores below this (1-10)"),
 ):
     """Generate a training dataset from seed prompts using a teacher."""
+    from distillanything.data.formats import save_records
     from distillanything.data.generate import generate_dataset
     from distillanything.teachers.registry import resolve_teacher
 
     teacher_obj = resolve_teacher(teacher, concurrency=concurrency)
-    generate_dataset(
+    records = generate_dataset(
         teacher_obj, seeds, out, system=system, max_tokens=max_tokens, expand_per_seed=expand
     )
+    if judge:
+        from distillanything.eval.judge import filter_by_score, score_records
+
+        judge_obj = resolve_teacher(judge, concurrency=concurrency)
+        console.print(f"Quality-scoring {len(records)} records with [cyan]{judge_obj.name}[/]...")
+        scored = score_records(judge_obj, records)
+        kept = filter_by_score(scored, min_score)
+        save_records(kept, out)
+        console.print(
+            f"[green]Kept {len(kept)}/{len(scored)}[/] records with judge_score >= {min_score}"
+        )
 
 
 @app.command()
@@ -71,8 +85,12 @@ def benchmark(
     model: str = typer.Argument(..., help="HF repo or local path of the model to benchmark"),
     prompt: str = typer.Option("Explain what knowledge distillation is in two sentences."),
     max_new_tokens: int = typer.Option(128),
+    n_runs: int = typer.Option(5, help="Repeat runs for p50/p95 latency"),
+    cost_per_hour: Optional[float] = typer.Option(
+        None, help="Hardware $/hour to compute serving cost per 1K tokens"
+    ),
 ):
-    """Measure latency, throughput, memory, and footprint of a model."""
+    """Measure latency (p50/p95), throughput, memory, footprint, and cost of a model."""
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     from distillanything.eval.benchmark import benchmark_model
@@ -81,7 +99,14 @@ def benchmark(
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     loaded = AutoModelForCausalLM.from_pretrained(model)
-    metrics = benchmark_model(loaded, tokenizer, prompt=prompt, max_new_tokens=max_new_tokens)
+    metrics = benchmark_model(
+        loaded,
+        tokenizer,
+        prompt=prompt,
+        max_new_tokens=max_new_tokens,
+        n_runs=n_runs,
+        hardware_cost_per_hour=cost_per_hour,
+    )
 
     table = Table(title=f"Benchmark: {model}")
     table.add_column("Metric")
@@ -102,6 +127,40 @@ def chat(
 
     student = Student(model)
     console.print(student.generate(prompt, max_new_tokens=max_new_tokens))
+
+
+@app.command()
+def report(
+    run_dir: str = typer.Argument(..., help="Distilled run directory (output_dir of a train run)"),
+    dataset: str = typer.Option(..., help="Eval dataset: JSONL with prompts (+responses as reference)"),
+    teacher: Optional[str] = typer.Option(
+        None, help="Teacher spec for missing references and side-by-side benchmark"
+    ),
+    judge: Optional[str] = typer.Option(
+        None, help="Judge spec for win/tie/lose quality eval (e.g. claude)"
+    ),
+    n: int = typer.Option(32, help="Number of held-out prompts to evaluate"),
+    max_new_tokens: int = typer.Option(256),
+    cost_per_hour: Optional[float] = typer.Option(
+        None, help="Hardware $/hour to compute serving cost per 1K tokens"
+    ),
+    benchmark_teacher: bool = typer.Option(
+        True, help="Also benchmark a local (hf:) teacher for the side-by-side table"
+    ),
+):
+    """Build REPORT.md for a run: judge-scored quality + efficiency vs the teacher."""
+    from distillanything.eval.report import build_report
+
+    build_report(
+        run_dir,
+        dataset,
+        teacher=teacher,
+        judge=judge,
+        n=n,
+        max_new_tokens=max_new_tokens,
+        hardware_cost_per_hour=cost_per_hour,
+        benchmark_teacher=benchmark_teacher,
+    )
 
 
 @app.command()

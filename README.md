@@ -29,18 +29,18 @@ surprise between the picture and the code.
 | Teacher | Claude API, GPT API, Hugging Face (Local), Ollama (Local) | ✅ | `hf:` / `claude` / `openai:` / `ollama:` teacher specs |
 | Synthetic Dataset Pipeline | Generate, Deduplication, Curated Dataset | ✅ | `distill generate`, normalized-content dedup |
 | Synthetic Dataset Pipeline | Filtering | 🚧 | Empty/too-short response filter only — no content or toxicity filters yet |
-| Synthetic Dataset Pipeline | Quality Scoring | 🗺️ | No scoring model in the loop yet |
+| Synthetic Dataset Pipeline | Quality Scoring | ✅ | LLM-judge 1-10 scoring: `distill generate --judge claude --min-score 7` |
 | Distillation Engine | Forward KL, Reverse KL, JSD, Top-k/Temp | ✅ | White-box logit KD, all three divergences + top-k truncation |
 | Distillation Engine | Response Supervision, Instruction Tuning | ✅ | Black-box seqKD (fine-tune on teacher-generated text) |
 | Distillation Engine | Preference (Optional) | 🗺️ | No DPO/preference-based distillation yet |
 | Evaluation | Perplexity | ✅ | |
-| Evaluation | Teacher Agreement | 🚧 | Top-1 token match rate — not win/tie/lose judging |
+| Evaluation | Teacher Agreement | ✅ | Win/tie/lose via blind, position-swapped LLM judge (`distill report --judge`) + token-level agreement |
 | Evaluation | Accuracy/EM, BLEU/ROUGE/BERTScore, Safety/Bias Checks | 🗺️ | No task-benchmark or safety-eval harness yet |
 | Benchmark | Tokens/s, Memory, Model Size | ✅ | `distill benchmark` |
-| Benchmark | Latency | 🚧 | Single-shot latency — no p50/p95 percentile sampling |
-| Benchmark | Cost / 1K Tokens | 🗺️ | Not computed yet |
+| Benchmark | Latency | ✅ | p50/p95 over repeated runs (`--n-runs`) |
+| Benchmark | Cost / 1K Tokens | ✅ | From measured throughput × your `--cost-per-hour` |
 | Outputs | Model Weights, Tokenizer & Config, Training Logs, Benchmarks | ✅ | Saved to `output_dir` on every run |
-| Outputs | Evaluation Report | 🚧 | Raw metrics in `results.json` — no formatted report |
+| Outputs | Evaluation Report | ✅ | `distill report` writes a shareable REPORT.md + report.json per run |
 | Core Capabilities | Reproducible Pipelines | ✅ | Seeded runs + full config snapshot saved alongside the checkpoint |
 | Core Capabilities | Multi-Teacher Support, Multi-Modal, Distributed Training, Quantization/Export, Experiment Tracking | 🗺️ | One teacher/one device per run today; text-only; no W&B/MLflow hooks |
 | Integrations | Hugging Face | ✅ | Models, tokenizers, chat templates |
@@ -96,6 +96,35 @@ export ANTHROPIC_API_KEY=...
 distill generate examples/data/seed_prompts.txt --teacher claude \
   --out data/claude_train.jsonl --expand 10
 distill train recipes/claude-blackbox.yaml
+```
+
+## The report card — "was it worth it?"
+
+After training, build a shareable REPORT.md that answers the only question that
+matters: *did the student keep the teacher's quality at a fraction of the cost?*
+
+```bash
+distill report runs/mac-small \
+  --dataset data/train.jsonl \
+  --teacher hf:HuggingFaceTB/SmolLM2-360M-Instruct \
+  --judge claude \
+  --n 32 --cost-per-hour 1.20
+```
+
+What it does:
+
+- **Quality**: a blind, position-swapped LLM judge (any teacher spec works as judge)
+  compares student vs reference answers → win/tie/lose and a single headline number,
+  *quality retention* (how often the student is at least as good).
+- **Efficiency**: side-by-side student-vs-teacher table — params, tokens/s, p50/p95
+  latency, memory, and $ per 1K tokens at your hardware price.
+- **Receipts**: sample outputs + the run's training metrics, written to
+  `REPORT.md` (human) and `report.json` (machines).
+
+The same judge can gate your synthetic data before training:
+
+```bash
+distill generate seeds.txt --teacher claude --judge claude --min-score 7
 ```
 
 ## The SDK

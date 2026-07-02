@@ -33,6 +33,6 @@ results = student.learn(
 )
 print("Eval:", results.get("eval"))
 
-# 3. Vibe-check and measure the student.
+# 3. Quick-check and measure the student.
 print(student.generate("Explain gradient descent using a hiking analogy."))
 print(student.benchmark())
