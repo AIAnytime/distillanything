@@ -9,3 +9,5 @@ runs/
 .ruff_cache/
 .DS_Store
 *.log
+headroom_readme.md
+.env
