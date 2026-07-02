@@ -1,0 +1,10 @@
+Explain the difference between a list and a tuple in Python.
+Write a short email declining a meeting politely.
+Summarize what an API rate limit is for a non-technical manager.
+What are three ways to reduce cloud compute costs?
+Explain gradient descent using a hiking analogy.
+Write a regex that matches ISO 8601 dates and explain it.
+What is the difference between concurrency and parallelism?
+Draft a one-paragraph product description for noise-cancelling headphones.
+Explain what a database index is and when it hurts performance.
+How do I decide between SQL and NoSQL for a new project?

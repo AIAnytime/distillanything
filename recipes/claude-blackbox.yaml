@@ -1,0 +1,24 @@
+# Black-box sequence-level KD: Claude generates the dataset, the student fine-tunes on it.
+# 1) export ANTHROPIC_API_KEY=...   (and: pip install "distill-anything[anthropic]")
+# 2) distill generate examples/data/seed_prompts.txt --teacher claude --out data/claude_train.jsonl --expand 5
+# 3) distill train recipes/claude-blackbox.yaml
+mode: seqkd
+teacher:
+  spec: claude:claude-opus-4-8
+  max_tokens: 512
+  concurrency: 4
+student:
+  model: HuggingFaceTB/SmolLM2-135M-Instruct
+data:
+  path: data/claude_train.jsonl
+  max_seq_len: 1024
+  eval_fraction: 0.05
+loss:
+  alpha: 0.0           # seqkd = plain CE on teacher text; KD term unused
+train:
+  output_dir: runs/claude-student
+  lr: 5.0e-5
+  epochs: 3
+  batch_size: 1
+  grad_accum: 16
+  log_every: 10

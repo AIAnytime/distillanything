@@ -1,0 +1,51 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "distill-anything"
+version = "0.1.0"
+description = "The open-source lifecycle framework for distilling any model: generate data from teachers, distill students, evaluate, and benchmark."
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.10"
+authors = [{ name = "Distill Anything contributors" }]
+keywords = ["distillation", "knowledge-distillation", "llm", "training", "synthetic-data"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "torch>=2.2",
+    "transformers>=4.44",
+    "pydantic>=2.5",
+    "pyyaml>=6.0",
+    "typer>=0.12",
+    "rich>=13.0",
+]
+
+[project.optional-dependencies]
+anthropic = ["anthropic>=0.40"]
+openai = ["openai>=1.40"]
+api = ["anthropic>=0.40", "openai>=1.40"]
+dev = ["pytest>=8.0", "ruff>=0.6"]
+
+[project.scripts]
+distill = "distillanything.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/distill-anything/distill-anything"
+
+[tool.hatch.build.targets.wheel]
+packages = ["distillanything"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

@@ -1,0 +1,25 @@
+# White-box logit KD on a Mac: SmolLM2-360M-Instruct teaches SmolLM2-135M.
+# Same model family => shared tokenizer => valid logit distillation.
+# ~1GB of downloads, runs on MPS. Bring your own data/train.jsonl
+# (or generate one: distill generate seeds.txt --teacher hf:HuggingFaceTB/SmolLM2-360M-Instruct)
+mode: logit
+teacher:
+  spec: hf:HuggingFaceTB/SmolLM2-360M-Instruct
+student:
+  model: HuggingFaceTB/SmolLM2-135M-Instruct
+data:
+  path: data/train.jsonl
+  max_seq_len: 512
+  eval_fraction: 0.05
+loss:
+  kind: forward_kl     # try reverse_kl (MiniLLM-style) or jsd
+  temperature: 2.0
+  alpha: 0.5
+  top_k: 256           # truncated KD keeps memory low on laptops
+train:
+  output_dir: runs/mac-small
+  lr: 1.0e-4
+  epochs: 2
+  batch_size: 2
+  grad_accum: 8
+  log_every: 10
