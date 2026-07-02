@@ -13,6 +13,7 @@
 
 <p align="center">
   <a href="https://github.com/AIAnytime/distillanything/actions/workflows/ci.yml"><img src="https://github.com/AIAnytime/distillanything/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://pypi.org/project/distill-anything/"><img src="https://img.shields.io/pypi/v/distill-anything.svg" alt="PyPI"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-green" alt="License: Apache 2.0"></a>
   <a href="#development"><img src="https://img.shields.io/badge/tests-31%20passing%20offline-brightgreen" alt="Tests"></a>
@@ -34,12 +35,12 @@
 Big models know things. Small models ship. Distill Anything covers the **whole distillation lifecycle** — a teacher generates your dataset, a student trains on its logits or its words, a judge scores the result blind, and a benchmark prices it — with one YAML recipe schema that scales from a 16GB MacBook to a GPU cluster.
 
 <p align="center">
-  <img src="media/demo.gif" alt="distill smoke running end-to-end on a MacBook" width="820">
+  <img src="https://raw.githubusercontent.com/AIAnytime/distillanything/main/media/demo.gif" alt="distill smoke running end-to-end on a MacBook" width="820">
   <br/><sub>Live: <code>distill smoke</code> — full logit-KD pipeline, offline, &lt;60s on a MacBook. loss 2.24 → 2.08, PASS.</sub>
 </p>
 
 <p align="center">
-  <img src="media/architecture.png" alt="Distill Anything architecture: seed prompts through teachers, synthetic dataset pipeline, distillation engine, evaluation, benchmark" width="100%">
+  <img src="https://raw.githubusercontent.com/AIAnytime/distillanything/main/media/architecture.png" alt="Distill Anything architecture: seed prompts through teachers, synthetic dataset pipeline, distillation engine, evaluation, benchmark" width="100%">
   <br/><sub>The full picture. What's shipped vs planned: <a href="#whats-real-today-vs-the-vision">status table</a>.</sub>
 </p>
 
@@ -83,15 +84,15 @@ One `DistillConfig` YAML describes the whole run; the same recipe format works f
 
 ```bash
 # 1 — Install
-git clone https://github.com/AIAnytime/distillanything && cd distillanything
-pip install -e .                    # core (torch, transformers)
-pip install -e ".[anthropic]"       # optional: Claude as teacher/judge
-pip install -e ".[openai]"          # optional: OpenAI / vLLM / Ollama teachers
+pip install distill-anything                    # core (torch, transformers)
+pip install "distill-anything[anthropic]"       # optional: Claude as teacher/judge
+pip install "distill-anything[openai]"          # optional: OpenAI / vLLM / Ollama teachers
 
 # 2 — Verify your machine (tiny random models, zero downloads, <1 min)
 distill smoke
 
 # 3 — First real distillation (SmolLM2-360M → 135M, ~1GB download, runs on MPS)
+git clone https://github.com/AIAnytime/distillanything && cd distillanything   # example seeds + recipes
 distill generate examples/data/seed_prompts.txt \
   --teacher hf:HuggingFaceTB/SmolLM2-360M-Instruct --out data/train.jsonl --expand 5
 distill train recipes/mac-small.yaml

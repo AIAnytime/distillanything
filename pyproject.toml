@@ -37,10 +37,15 @@ dev = ["pytest>=8.0", "ruff>=0.6"]
 distill = "distillanything.cli:app"
 
 [project.urls]
-Homepage = "https://github.com/distill-anything/distill-anything"
+Homepage = "https://github.com/AIAnytime/distillanything"
+Repository = "https://github.com/AIAnytime/distillanything"
+Issues = "https://github.com/AIAnytime/distillanything/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["distillanything"]
+
+[tool.hatch.build.targets.sdist]
+exclude = ["/.claude", "/.github", "/data", "/media", "/runs", "/startup.md", "/headroom_readme.md"]
 
 [tool.ruff]
 line-length = 110
