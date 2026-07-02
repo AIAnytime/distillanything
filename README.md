@@ -25,6 +25,7 @@
   <a href="#get-started-60-seconds">Install</a> ·
   <a href="#proof">Proof</a> ·
   <a href="#the-report-card">Report card</a> ·
+  <a href="#examples-notebook-and-tests-as-docs">Examples</a> ·
   <a href="#teachers">Teachers</a> ·
   <a href="#compared-to">Compared to</a> ·
   <a href="#roadmap">Roadmap</a>
@@ -154,6 +155,34 @@ distill report runs/mac-small \
 ```
 
 `REPORT.md` leads with **quality retention** (how often the student matches or beats the reference), then a side-by-side efficiency table (params, tokens/s, p50/p95, memory, $/1K tokens — "3.0x smaller and 3.0x faster"), sample outputs, and the training metrics. `report.json` sits next to it for machines.
+
+## Examples, notebook, and tests-as-docs
+
+Three ways to learn the framework, all installing from PyPI (`pip install distill-anything` or `uv pip install distill-anything`):
+
+**📓 The notebook** — [`examples/sample_notebook.ipynb`](examples/sample_notebook.ipynb) walks the entire lifecycle with commentary: install → offline self-test → teacher-generated dataset → logit KD → rendered report card → benchmark → swapping in Claude/GPT teachers. Section 1 runs instantly offline; the full tour is ~15 min on a MacBook.
+
+**🐍 The scripts** — the same flow as three standalone, heavily commented files you can copy into your own project:
+
+| Script | What it teaches |
+|---|---|
+| [`examples/01_generate_dataset.py`](examples/01_generate_dataset.py) | Teacher specs, seed prompts, self-instruct expansion, dataset JSONL format |
+| [`examples/02_train_student.py`](examples/02_train_student.py) | `Student.learn()`, white-box vs black-box mode selection, the KD loss knobs |
+| [`examples/03_evaluate_and_report.py`](examples/03_evaluate_and_report.py) | Blind position-swapped judging, quality retention, the REPORT.md artifact |
+
+**🧪 The tests as living docs** — the suite runs offline in seconds and doubles as executable documentation:
+
+| Test file | Read it to learn |
+|---|---|
+| [`tests/test_losses.py`](tests/test_losses.py) | The KD math contracts: non-negativity, masking, top-k truncation, backprop |
+| [`tests/test_judge.py`](tests/test_judge.py) | How to fake a `Teacher` for your own tests; why position-swap kills judge bias |
+| [`tests/test_trainer.py`](tests/test_trainer.py) | Training end-to-end with tiny random models (the pattern for fast iteration) |
+| [`tests/test_report.py`](tests/test_report.py) | The report data shape and a full build-report integration run |
+
+```bash
+git clone https://github.com/AIAnytime/distillanything && cd distillanything
+pip install "distill-anything[dev]" && pytest    # green in seconds, no GPU/keys/network
+```
 
 ## Teachers
 
