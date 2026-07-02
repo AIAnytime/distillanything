@@ -144,7 +144,12 @@ distill report runs/mac-small \
 
 Three ways to learn the framework, all installing from PyPI (`pip install distill-anything` or `uv pip install distill-anything`):
 
-**📓 The notebook** — [`examples/sample_notebook.ipynb`](examples/sample_notebook.ipynb) walks the entire lifecycle with commentary: install → offline self-test → teacher-generated dataset → logit KD → rendered report card → benchmark → swapping in Claude/GPT teachers. Section 1 runs instantly offline; the full tour is ~15 min on a MacBook.
+**📓 The notebooks**
+
+| Notebook | What it covers |
+|---|---|
+| [`examples/sample_notebook.ipynb`](examples/sample_notebook.ipynb) | The full lifecycle: install → offline self-test → teacher-generated dataset → logit KD → rendered report card → benchmark → swapping in Claude/GPT teachers (~15 min on a MacBook) |
+| [`examples/lora_notebook.ipynb`](examples/lora_notebook.ipynb) | LoRA & QLoRA students: why adapters beat the AdamW memory wall, trainable-param collapse, merged vs adapter-only checkpoints, the CUDA-only QLoRA path, and the 1.5B-on-16GB recipe (~5 min; committed with real executed outputs) |
 
 **🐍 The scripts** — the same flow as three standalone, heavily commented files you can copy into your own project:
 
