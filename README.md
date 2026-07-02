@@ -2,27 +2,19 @@
 
 **The open-source lifecycle framework for building specialized models.**
 
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
+[![License](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
+[![Status](https://img.shields.io/badge/status-alpha-orange)](#)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](#development)
+[![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-261230)](https://github.com/astral-sh/ruff)
+
 Big models know things. Small models ship. Distill Anything covers the full loop —
 **generate → clean → distill → evaluate → benchmark** — with one config schema that
 scales from a MacBook to a GPU cluster.
 
-```
-Seed prompts ──▶ Teacher (Claude / GPT / local HF / Ollama)
-                      │
-                      ▼
-              Synthetic dataset (dedup + filtering)
-                      │
-                      ▼
-              Distillation engine
-              ├─ logit KD  (white-box: forward KL / reverse KL / JSD, top-k)
-              └─ seqKD     (black-box: fine-tune on teacher outputs)
-                      │
-                      ▼
-              Evaluation (perplexity, teacher agreement)
-                      │
-                      ▼
-              Benchmark (latency, tokens/s, memory, footprint)
-```
+<p align="center">
+  <img src="media/architecture.png" alt="Distill Anything architecture: seed prompts through teachers, synthetic dataset pipeline, distillation engine, evaluation, benchmark, to Python SDK / CLI / REST API" width="100%">
+</p>
 
 ## Why
 
