@@ -16,6 +16,38 @@ scales from a MacBook to a GPU cluster.
   <img src="media/architecture.png" alt="Distill Anything architecture: seed prompts through teachers, synthetic dataset pipeline, distillation engine, evaluation, benchmark, to Python SDK / CLI / REST API" width="100%">
 </p>
 
+The diagram is the north star for the project, not a feature list of what's in your
+`pip install` today. The table below maps every box to its real status so there's no
+surprise between the picture and the code.
+
+**Legend:** ✅ shipped &nbsp;·&nbsp; 🚧 partial &nbsp;·&nbsp; 🗺️ planned, not yet built
+
+| Diagram section | Box | Status | Notes |
+|---|---|:---:|---|
+| Seed Prompts | Text / Docs, Custom | ✅ | `.txt` (one prompt/line) and `.jsonl` (`prompt`/`messages`/`text`) |
+| Seed Prompts | Code | 🚧 | No special handling — treated as plain text, works but untuned |
+| Teacher | Claude API, GPT API, Hugging Face (Local), Ollama (Local) | ✅ | `hf:` / `claude` / `openai:` / `ollama:` teacher specs |
+| Synthetic Dataset Pipeline | Generate, Deduplication, Curated Dataset | ✅ | `distill generate`, normalized-content dedup |
+| Synthetic Dataset Pipeline | Filtering | 🚧 | Empty/too-short response filter only — no content or toxicity filters yet |
+| Synthetic Dataset Pipeline | Quality Scoring | 🗺️ | No scoring model in the loop yet |
+| Distillation Engine | Forward KL, Reverse KL, JSD, Top-k/Temp | ✅ | White-box logit KD, all three divergences + top-k truncation |
+| Distillation Engine | Response Supervision, Instruction Tuning | ✅ | Black-box seqKD (fine-tune on teacher-generated text) |
+| Distillation Engine | Preference (Optional) | 🗺️ | No DPO/preference-based distillation yet |
+| Evaluation | Perplexity | ✅ | |
+| Evaluation | Teacher Agreement | 🚧 | Top-1 token match rate — not win/tie/lose judging |
+| Evaluation | Accuracy/EM, BLEU/ROUGE/BERTScore, Safety/Bias Checks | 🗺️ | No task-benchmark or safety-eval harness yet |
+| Benchmark | Tokens/s, Memory, Model Size | ✅ | `distill benchmark` |
+| Benchmark | Latency | 🚧 | Single-shot latency — no p50/p95 percentile sampling |
+| Benchmark | Cost / 1K Tokens | 🗺️ | Not computed yet |
+| Outputs | Model Weights, Tokenizer & Config, Training Logs, Benchmarks | ✅ | Saved to `output_dir` on every run |
+| Outputs | Evaluation Report | 🚧 | Raw metrics in `results.json` — no formatted report |
+| Core Capabilities | Reproducible Pipelines | ✅ | Seeded runs + full config snapshot saved alongside the checkpoint |
+| Core Capabilities | Multi-Teacher Support, Multi-Modal, Distributed Training, Quantization/Export, Experiment Tracking | 🗺️ | One teacher/one device per run today; text-only; no W&B/MLflow hooks |
+| Integrations | Hugging Face | ✅ | Models, tokenizers, chat templates |
+| Integrations | Weights & Biases, MLflow, S3/GCS/Azure Blob, Docker/Kubernetes | 🗺️ | Not integrated yet |
+| How you interact | Python SDK, CLI | ✅ | `Student().learn(...)` and `distill ...` |
+| How you interact | REST API, Web UI | 🗺️ | CLI/SDK only for now |
+
 ## Why
 
 Everyone wants GPT-class quality at 1/100th the size and cost. Almost nobody has
@@ -126,10 +158,11 @@ Recipes are sized so `mac-small` runs on a 16GB MacBook.
 
 ## Roadmap
 
+Beyond closing the 🗺️ gaps in the status table above, also planned (not pictured in
+the diagram):
+
 - [ ] Hidden-state / feature KD with learned projectors
 - [ ] Cross-tokenizer logit distillation (ULD)
-- [ ] Preference distillation (teacher-as-judge → DPO)
-- [ ] Multi-teacher voting and ensembling
 - [ ] LoRA/QLoRA students for larger models on small hardware
 - [ ] VLM, embedding, and reranker distillation
 - [ ] Eval harness integration (lm-eval-harness) and regression tracking
