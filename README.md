@@ -34,6 +34,11 @@
 Big models know things. Small models ship. Distill Anything covers the **whole distillation lifecycle** — a teacher generates your dataset, a student trains on its logits or its words, a judge scores the result blind, and a benchmark prices it — with one YAML recipe schema that scales from a 16GB MacBook to a GPU cluster.
 
 <p align="center">
+  <img src="media/demo.gif" alt="distill smoke running end-to-end on a MacBook" width="820">
+  <br/><sub>Live: <code>distill smoke</code> — full logit-KD pipeline, offline, &lt;60s on a MacBook. loss 2.24 → 2.08, PASS.</sub>
+</p>
+
+<p align="center">
   <img src="media/architecture.png" alt="Distill Anything architecture: seed prompts through teachers, synthetic dataset pipeline, distillation engine, evaluation, benchmark" width="100%">
   <br/><sub>The full picture. What's shipped vs planned: <a href="#whats-real-today-vs-the-vision">status table</a>.</sub>
 </p>
