@@ -197,7 +197,8 @@ def reconcile_interrupted_runs(runs_root: Path) -> list[str]:
             status = json.loads(status_path.read_text())
         except (OSError, json.JSONDecodeError):
             continue
-        if status.get("state") != "running":
+        state = status.get("state")
+        if state not in ("running", "queued"):
             continue
         pid = None
         if marker_path.exists():
@@ -212,7 +213,10 @@ def reconcile_interrupted_runs(runs_root: Path) -> list[str]:
                 alive = True
             except (OSError, ProcessLookupError):
                 alive = False
-        if not alive and pid is not None:
+        # "queued" is only ever written by the server, and its queue died with it —
+        # always orphaned here. "running" with no pid may be a live CLI run: leave it.
+        orphaned = state == "queued" if pid is None else not alive
+        if orphaned:
             status["state"] = "interrupted"
             status["finished_at"] = _utcnow()
             status_path.write_text(json.dumps(status, indent=2))

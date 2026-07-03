@@ -202,6 +202,23 @@ def test_job_manager_failed_status(tmp_path):
     assert m.get(job.id).returncode == 3
 
 
+def test_reconcile_marks_orphaned_queued_runs(tmp_path):
+    run_dir = tmp_path / "stuck"
+    run_dir.mkdir()
+    (run_dir / "status.json").write_text(json.dumps({"state": "queued"}))
+    assert reconcile_interrupted_runs(tmp_path) == ["stuck"]
+    assert json.loads((run_dir / "status.json").read_text())["state"] == "interrupted"
+
+
+def test_reconcile_leaves_live_cli_runs_alone(tmp_path):
+    # state=running with no job marker could be a live CLI-started run — hands off.
+    run_dir = tmp_path / "cli-run"
+    run_dir.mkdir()
+    (run_dir / "status.json").write_text(json.dumps({"state": "running"}))
+    assert reconcile_interrupted_runs(tmp_path) == []
+    assert json.loads((run_dir / "status.json").read_text())["state"] == "running"
+
+
 def test_reconcile_marks_dead_running_runs(tmp_path):
     run_dir = tmp_path / "orphan"
     run_dir.mkdir()
@@ -258,6 +275,14 @@ def test_restart_run_from_config_snapshot(env, monkeypatch):
     r = client.post("/api/runs/run-a/restart")
     assert r.status_code == 201, r.text
     job_id = r.json()["id"]
+
+    # Submission must immediately mark the run queued and drop stale metrics, so
+    # the UI's live stream stays open through the model-loading gap instead of
+    # seeing the old terminal state and closing (the bug this pins down).
+    status = json.loads((runs_root / "run-a" / "status.json").read_text())
+    assert status["state"] == "queued"
+    assert (runs_root / "run-a" / "metrics.jsonl").read_text() == ""
+
     assert _wait(lambda: manager.get(job_id).status == "completed")
     recipe = (runs_root / "run-a" / "recipe.yaml").read_text()
     assert "mode: logit" in recipe and str(runs_root / "run-a") in recipe

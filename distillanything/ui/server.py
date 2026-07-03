@@ -154,6 +154,34 @@ def create_app(
         except (OSError, json.JSONDecodeError):
             return "unknown"
 
+    def _run_active(name: str, run_dir: Path) -> bool:
+        """More data may still arrive: the run is queued/running on disk, or a
+        job for it is in flight (covers the model-loading gap where the trainer
+        hasn't overwritten the previous terminal status yet)."""
+        if _run_state(run_dir) in ("queued", "running"):
+            return True
+        return any(
+            j["run_name"] == name and j["status"] in ("queued", "running") for j in jobs.list()
+        )
+
+    def _mark_queued(run_dir: Path, cfg: DistillConfig) -> None:
+        """Written at submit time so the run appears (and streams stay open)
+        before the subprocess finishes loading models. The trainer overwrites
+        this with state=running when steps actually begin."""
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "metrics.jsonl").write_text("")  # drop stale curves right away
+        (run_dir / "status.json").write_text(
+            json.dumps(
+                {
+                    "state": "queued",
+                    "mode": cfg.mode,
+                    "student": cfg.student.model,
+                    "teacher": cfg.teacher.spec,
+                },
+                indent=2,
+            )
+        )
+
     # ------------------------------------------------------------------ reads
 
     @app.get("/api/health")
@@ -189,13 +217,13 @@ def create_app(
     @app.get("/api/runs/{name}/metrics/stream")
     async def metrics_stream(name: str, request: Request):
         run_dir = _run_dir(name)
-        gen = _sse_tail(run_dir / "metrics.jsonl", request, done=lambda: _run_state(run_dir) != "running")
+        gen = _sse_tail(run_dir / "metrics.jsonl", request, done=lambda: not _run_active(name, run_dir))
         return StreamingResponse(gen, media_type="text/event-stream")
 
     @app.get("/api/runs/{name}/logs/stream")
     async def logs_stream(name: str, request: Request):
         run_dir = _run_dir(name)
-        gen = _sse_tail(run_dir / "train.log", request, done=lambda: _run_state(run_dir) != "running")
+        gen = _sse_tail(run_dir / "train.log", request, done=lambda: not _run_active(name, run_dir))
         return StreamingResponse(gen, media_type="text/event-stream")
 
     @app.get("/api/datasets")
@@ -230,7 +258,7 @@ def create_app(
             raise HTTPException(422, f"invalid recipe: {exc}") from exc
         cfg.data.path = str(dataset)
         cfg.train.output_dir = str(run_dir)
-        run_dir.mkdir(parents=True, exist_ok=True)
+        _mark_queued(run_dir, cfg)
         recipe = run_dir / "recipe.yaml"
         cfg.to_yaml(recipe)
         job = jobs.submit(
@@ -247,7 +275,12 @@ def create_app(
         if _run_state(run_dir) == "running":
             raise HTTPException(409, f"run {name!r} is currently running")
         recipe = run_dir / "recipe.yaml"
-        if not recipe.exists():
+        if recipe.exists():
+            try:
+                cfg = DistillConfig.from_yaml(recipe)
+            except Exception as exc:
+                raise HTTPException(422, f"saved recipe is invalid: {exc}") from exc
+        else:
             # CLI-started runs have no recipe.yaml, but the trainer always saves
             # the full config snapshot — rebuild the recipe from it.
             cfg_snapshot = run_dir / "distill_config.json"
@@ -259,6 +292,7 @@ def create_app(
                 raise HTTPException(422, f"saved config is invalid: {exc}") from exc
             cfg.train.output_dir = str(run_dir)
             cfg.to_yaml(recipe)
+        _mark_queued(run_dir, cfg)
         job = jobs.submit(
             "train", cli_argv("train", str(recipe)), log_path=run_dir / "train.log", run_name=name
         )
