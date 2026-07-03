@@ -25,6 +25,7 @@
   <a href="#get-started-60-seconds">Install</a> ·
   <a href="#proof">Proof</a> ·
   <a href="#the-report-card">Report card</a> ·
+  <a href="#the-dashboard">Dashboard</a> ·
   <a href="#examples-notebook-and-tests-as-docs">Examples</a> ·
   <a href="#teachers">Teachers</a> ·
   <a href="#compared-to">Compared to</a> ·
@@ -56,6 +57,7 @@ Big models know things. Small models ship. Distill Anything covers the **whole d
 - **Report card** — `distill report` writes a shareable `REPORT.md`: quality vs the teacher, p50/p95 latency, tokens/s, memory, $ per 1K tokens
 - **LoRA / QLoRA students** — freeze the base, train adapters: 1–3B students on a 16GB laptop (`[lora]` extra); 4-bit QLoRA on CUDA (`[qlora]`)
 - **Hardware-aware** — CUDA (bf16) → Apple Silicon MPS → CPU, detected automatically; teachers load in half precision on GPU/MPS
+- **Dashboard** — `distill ui`: live loss curves for every run (CLI-started ones too), report cards, run comparison, and a control plane to launch/stop training and generate datasets from the browser (`[ui]` extra)
 
 ## How it works (30 seconds)
 
@@ -139,6 +141,22 @@ distill report runs/mac-small \
 ```
 
 `REPORT.md` leads with **quality retention** (how often the student matches or beats the reference), then a side-by-side efficiency table (params, tokens/s, p50/p95, memory, $/1K tokens — "3.0x smaller and 3.0x faster"), sample outputs, and the training metrics. `report.json` sits next to it for machines.
+
+## The dashboard
+
+```bash
+pip install "distill-anything[ui]"
+distill ui
+```
+
+One command starts a local dashboard (dark-first, W&B-style) over your `runs/` and `data/` directories:
+
+- **Live training charts** — loss/KD/CE/LR stream in over SSE while a run trains. Runs started from the **CLI show up too**: the trainer writes `metrics.jsonl` + `status.json` into every run dir, and the UI just tails files.
+- **Report cards** — quality retention, win/tie/lose, and the efficiency table rendered per run.
+- **Compare** — overlay loss curves of up to six runs.
+- **Control plane** — a New-run wizard (the form *is* the recipe YAML, saved into the run dir), teacher-driven dataset generation with judge gating, and stop buttons. One training job at a time by default — the right call on a 16GB laptop; extra submissions queue.
+
+**Security model** (the dashboard can spawn training processes, so it gets the Jupyter treatment, not the "it's only local" treatment): binds `127.0.0.1` only by default; a per-session bearer token is always required — even on localhost — and is auto-generated and embedded in the URL it prints; Host-header allowlisting blocks DNS-rebinding; strict CSP/security headers; every client-supplied name is sandbox-resolved inside your runs/data directories; API keys for teachers are read from the environment where `distill ui` runs — the UI never asks for, stores, or returns them. Binding beyond localhost refuses to start without an explicit `--token` you chose yourself.
 
 ## Examples, notebook, and tests-as-docs
 
@@ -272,7 +290,8 @@ The architecture diagram is the north star, not the changelog. Every box, mapped
 | Integrations | Hugging Face | ✅ | Models, tokenizers, chat templates |
 | Integrations | Weights & Biases, MLflow, S3/GCS/Azure Blob, Docker/Kubernetes | 🗺️ | Not integrated yet |
 | How you interact | Python SDK, CLI | ✅ | `Student().learn(...)` and `distill ...` |
-| How you interact | REST API, Web UI | 🗺️ | CLI/SDK only for now |
+| How you interact | Web UI | ✅ | `distill ui` — live runs, report cards, compare, launch/stop jobs (v0.3) |
+| How you interact | REST API | 🚧 | The dashboard's token-authed local API (`/api/...`); not yet a stable public contract |
 
 </details>
 
@@ -308,6 +327,7 @@ If you already have a curated dataset and a GPU and just want a training loop, T
 Beyond closing the 🗺️ gaps in the status table:
 
 - [x] **LoRA/QLoRA students** — distill into 1–3B students on 16GB of RAM *(shipped in v0.2)*
+- [x] **Web dashboard** — live runs, report cards, and a local control plane (`distill ui`) *(shipped in v0.3)*
 - [ ] Hidden-state / feature KD with learned projectors
 - [ ] Cross-tokenizer logit distillation (ULD)
 - [ ] Multi-teacher voting and ensembling

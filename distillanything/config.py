@@ -6,7 +6,14 @@ from pathlib import Path
 from typing import Literal, Optional
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel as PydanticBaseModel
+from pydantic import ConfigDict, Field
+
+
+class BaseModel(PydanticBaseModel):
+    # Reject unknown fields everywhere: a typo'd recipe key (or a bogus field in
+    # an API request to the web UI) fails loudly instead of being ignored.
+    model_config = ConfigDict(extra="forbid")
 
 
 class TeacherConfig(BaseModel):

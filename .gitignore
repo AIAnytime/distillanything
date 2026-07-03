@@ -12,3 +12,4 @@ runs/
 headroom_readme.md
 .env
 content-kit/
+web/node_modules/

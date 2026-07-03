@@ -164,6 +164,27 @@ def report(
 
 
 @app.command()
+def ui(
+    runs_dir: str = typer.Option("runs", help="Directory containing your training runs"),
+    data_dir: str = typer.Option("data", help="Directory containing your JSONL datasets"),
+    host: str = typer.Option("127.0.0.1", help="Bind address (non-localhost requires --token)"),
+    port: int = typer.Option(7326, help="Port for the dashboard"),
+    token: Optional[str] = typer.Option(
+        None, help="Session token; a strong one is auto-generated if omitted"
+    ),
+    no_browser: bool = typer.Option(False, "--no-browser", help="Don't open the browser"),
+):
+    """Launch the dashboard: live runs, report cards, and a control plane for jobs."""
+    try:
+        from distillanything.ui.server import run_server
+    except ImportError:
+        console.print('[red]The dashboard needs extras:[/] pip install "distill-anything[ui]"')
+        raise typer.Exit(1) from None
+
+    run_server(runs_dir, data_dir, host=host, port=port, token=token, open_browser=not no_browser)
+
+
+@app.command()
 def smoke():
     """End-to-end self-test with tiny random models (no downloads, <1 min)."""
     from distillanything.smoke import run_smoke
