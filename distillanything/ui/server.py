@@ -347,9 +347,14 @@ def run_server(
         enforce_host_allowlist=is_loopback_bind,
     )
     url = f"http://{'127.0.0.1' if is_loopback_bind else host}:{port}/?token={token}"
-    print(f"\n  Distill Anything dashboard: {url}\n")
+    # flush=True: uvicorn.run never returns, so without it the URL can sit in a
+    # block buffer forever when stdout is redirected.
+    print(f"\n  Distill Anything dashboard: {url}\n", flush=True)
     if not is_loopback_bind:
-        print("  WARNING: binding beyond localhost — anyone with this token controls training jobs.\n")
+        print(
+            "  WARNING: binding beyond localhost — anyone with this token controls training jobs.\n",
+            flush=True,
+        )
     if open_browser and is_loopback_bind:
         webbrowser.open(url)
     uvicorn.run(app, host=host, port=port, log_level="warning")
