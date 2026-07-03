@@ -246,6 +246,29 @@ def test_train_job_rejects_unknown_recipe_fields(env):
     assert r.status_code == 400
 
 
+def test_restart_run_from_config_snapshot(env, monkeypatch):
+    client, runs_root, _, manager = env
+    import distillanything.ui.server as server_mod
+
+    monkeypatch.setattr(server_mod, "cli_argv", lambda *a: [sys.executable, "-c", "print('ok')"])
+
+    # run-a has distill_config.json but no recipe.yaml (like a CLI-started run):
+    # restart must rebuild the recipe from the snapshot. The fixture's config is
+    # partial ({"mode": "logit"}) — defaults fill the rest.
+    r = client.post("/api/runs/run-a/restart")
+    assert r.status_code == 201, r.text
+    job_id = r.json()["id"]
+    assert _wait(lambda: manager.get(job_id).status == "completed")
+    recipe = (runs_root / "run-a" / "recipe.yaml").read_text()
+    assert "mode: logit" in recipe and str(runs_root / "run-a") in recipe
+
+
+def test_restart_rejects_running_and_missing(env):
+    client, *_ = env
+    assert client.post("/api/runs/run-b/restart").status_code == 409  # running
+    assert client.post("/api/runs/ghost/restart").status_code == 404
+
+
 def test_generate_job_validates_specs(env):
     client, *_ = env
     bad = {"name": "gen1", "teacher": "--rm -rf", "seeds_text": "hello"}

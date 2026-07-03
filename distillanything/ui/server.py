@@ -94,6 +94,8 @@ async def _sse_tail(path: Path, request: Request, done: callable, poll: float = 
             return
         emitted = False
         if path.exists():
+            if path.stat().st_size < pos:
+                pos = 0  # file was truncated (run restarted) — tail from the top
             with path.open("rb") as f:
                 f.seek(pos)
                 chunk = f.read()
@@ -233,6 +235,32 @@ def create_app(
         cfg.to_yaml(recipe)
         job = jobs.submit(
             "train", cli_argv("train", str(recipe)), log_path=run_dir / "train.log", run_name=body.name
+        )
+        return job.to_dict()
+
+    @app.post("/api/runs/{name}/restart", status_code=201)
+    def restart_run(name: str):
+        """Re-run a finished/stopped run from its saved recipe (fresh start, same run dir)."""
+        run_dir = _run_dir(name)
+        if not run_dir.is_dir():
+            raise HTTPException(404, "run not found")
+        if _run_state(run_dir) == "running":
+            raise HTTPException(409, f"run {name!r} is currently running")
+        recipe = run_dir / "recipe.yaml"
+        if not recipe.exists():
+            # CLI-started runs have no recipe.yaml, but the trainer always saves
+            # the full config snapshot — rebuild the recipe from it.
+            cfg_snapshot = run_dir / "distill_config.json"
+            if not cfg_snapshot.exists():
+                raise HTTPException(400, "no recipe or config snapshot to restart from")
+            try:
+                cfg = DistillConfig.model_validate(json.loads(cfg_snapshot.read_text()))
+            except Exception as exc:
+                raise HTTPException(422, f"saved config is invalid: {exc}") from exc
+            cfg.train.output_dir = str(run_dir)
+            cfg.to_yaml(recipe)
+        job = jobs.submit(
+            "train", cli_argv("train", str(recipe)), log_path=run_dir / "train.log", run_name=name
         )
         return job.to_dict()
 

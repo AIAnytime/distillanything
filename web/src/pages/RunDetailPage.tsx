@@ -6,6 +6,7 @@ import {
   StateBadge,
   fmtNum,
   shortModel,
+  usePoll,
   useToast,
 } from "../components";
 import { MetricChart, chartColors } from "../MetricChart";
@@ -125,6 +126,8 @@ export function RunDetailPage() {
   const [logLines, setLogLines] = useState<string[]>([]);
   const [showLogs, setShowLogs] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
+  // Bumped on restart: tears down the SSE stream and re-tails from scratch.
+  const [epoch, setEpoch] = useState(0);
   const toast = useToast();
   const logRef = useRef<HTMLDivElement>(null);
   const seenSteps = useRef<Set<string>>(new Set());
@@ -169,7 +172,10 @@ export function RunDetailPage() {
       () => refresh(), // run finished — pick up final state and report
     );
     return closeMetrics;
-  }, [name, refresh]);
+  }, [name, refresh, epoch]);
+
+  // Keep header state fresh — catches restarts and CLI-side changes.
+  usePoll(refresh, 5000, [name]);
 
   useEffect(() => {
     if (!showLogs) return;
@@ -182,6 +188,23 @@ export function RunDetailPage() {
   useEffect(() => {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
   }, [logLines]);
+
+  const restartRun = async () => {
+    if (
+      !window.confirm(
+        `Re-run "${name}" from its saved recipe?\n\nThis starts training from scratch and ` +
+          `overwrites the checkpoint and metrics in runs/${name}.`,
+      )
+    )
+      return;
+    try {
+      await api(`/api/runs/${name}/restart`, { method: "POST" });
+      toast("Run restarted — model loads first, charts stream once training begins.");
+      setEpoch((e) => e + 1);
+    } catch (e) {
+      toast(`Restart failed: ${(e as Error).message}`, true);
+    }
+  };
 
   const stopRun = async () => {
     try {
@@ -228,10 +251,16 @@ export function RunDetailPage() {
           <button className="btn" onClick={() => setShowLogs((v) => !v)}>
             Logs
           </button>
-          {run?.state === "running" && (
+          {run?.state === "running" ? (
             <button className="btn btn-danger" onClick={stopRun}>
               ■ Stop
             </button>
+          ) : (
+            run && (
+              <button className="btn" onClick={restartRun}>
+                ↻ Run again
+              </button>
+            )
           )}
         </div>
       </div>
