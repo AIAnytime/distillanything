@@ -11,3 +11,4 @@ runs/
 *.log
 headroom_readme.md
 .env
+content-kit/
