@@ -474,6 +474,72 @@ code,
   margin: 0;
 }
 
+/* ---------- modal ---------- */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(4, 6, 10, 0.62);
+  backdrop-filter: blur(2px);
+  display: grid;
+  place-items: center;
+  z-index: 200;
+  animation: fadein 0.14s ease-out;
+}
+:root[data-theme="light"] .modal-overlay {
+  background: rgba(31, 35, 40, 0.4);
+}
+@keyframes fadein {
+  from {
+    opacity: 0;
+  }
+}
+
+.modal {
+  width: min(440px, calc(100vw - 48px));
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  animation: modalin 0.16s ease-out;
+}
+@keyframes modalin {
+  from {
+    transform: translateY(10px) scale(0.98);
+    opacity: 0;
+  }
+}
+.modal-head {
+  padding: 16px 20px 0;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+.modal-body {
+  padding: 10px 20px 4px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.modal-body code {
+  color: var(--text);
+}
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 16px 20px 18px;
+}
+.btn-warn {
+  background: var(--amber);
+  color: #141003;
+  border-color: transparent;
+}
+.btn-warn:hover {
+  filter: brightness(1.08);
+  border-color: transparent;
+}
+
 .toasts {
   position: fixed;
   bottom: 20px;

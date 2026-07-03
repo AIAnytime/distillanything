@@ -128,6 +128,58 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   );
 }
 
+// ---------- confirm dialog ----------
+
+export function ConfirmDialog({
+  open,
+  title,
+  confirmLabel,
+  tone = "warn",
+  onConfirm,
+  onCancel,
+  children,
+}: {
+  open: boolean;
+  title: string;
+  confirmLabel: string;
+  tone?: "warn" | "danger";
+  onConfirm: () => void;
+  onCancel: () => void;
+  children: ReactNode;
+}) {
+  const confirmRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    confirmRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onCancel();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onCancel]);
+
+  if (!open) return null;
+  return (
+    <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && onCancel()}>
+      <div className="modal" role="dialog" aria-modal="true" aria-label={title}>
+        <div className="modal-head">{title}</div>
+        <div className="modal-body">{children}</div>
+        <div className="modal-actions">
+          <button className="btn" onClick={onCancel}>
+            Cancel
+          </button>
+          <button
+            ref={confirmRef}
+            className={`btn ${tone === "danger" ? "btn-danger" : "btn-warn"}`}
+            onClick={onConfirm}
+          >
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ---------- polling ----------
 
 export function usePoll(fn: () => void | Promise<void>, ms: number, deps: unknown[] = []) {

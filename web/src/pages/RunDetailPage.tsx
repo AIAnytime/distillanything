@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api, sse } from "../api";
 import {
+  ConfirmDialog,
   Retention,
   StateBadge,
   fmtNum,
@@ -128,6 +129,7 @@ export function RunDetailPage() {
   const [showConfig, setShowConfig] = useState(false);
   // Bumped on restart: tears down the SSE stream and re-tails from scratch.
   const [epoch, setEpoch] = useState(0);
+  const [confirmRestart, setConfirmRestart] = useState(false);
   const toast = useToast();
   const logRef = useRef<HTMLDivElement>(null);
   const seenSteps = useRef<Set<string>>(new Set());
@@ -190,13 +192,7 @@ export function RunDetailPage() {
   }, [logLines]);
 
   const restartRun = async () => {
-    if (
-      !window.confirm(
-        `Re-run "${name}" from its saved recipe?\n\nThis starts training from scratch and ` +
-          `overwrites the checkpoint and metrics in runs/${name}.`,
-      )
-    )
-      return;
+    setConfirmRestart(false);
     try {
       await api(`/api/runs/${name}/restart`, { method: "POST" });
       toast("Run restarted — model loads first, charts stream once training begins.");
@@ -257,13 +253,24 @@ export function RunDetailPage() {
             </button>
           ) : (
             run && (
-              <button className="btn" onClick={restartRun}>
+              <button className="btn" onClick={() => setConfirmRestart(true)}>
                 ↻ Run again
               </button>
             )
           )}
         </div>
       </div>
+
+      <ConfirmDialog
+        open={confirmRestart}
+        title={`Re-run ${name}?`}
+        confirmLabel="↻ Run again"
+        onConfirm={restartRun}
+        onCancel={() => setConfirmRestart(false)}
+      >
+        Training restarts from the saved recipe — a fresh start, not a resume. The existing
+        checkpoint and metrics in <code>runs/{name}</code> will be overwritten.
+      </ConfirmDialog>
 
       {run?.error && (
         <div className="card card-body mono" style={{ color: "var(--danger)", marginBottom: 16 }}>
