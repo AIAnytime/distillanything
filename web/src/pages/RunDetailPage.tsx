@@ -11,7 +11,126 @@ import {
   useToast,
 } from "../components";
 import { MetricChart, chartColors } from "../MetricChart";
-import type { Benchmark, Job, MetricPoint, Report, RunDetail } from "../types";
+import type { Benchmark, DatasetInfo, Job, MetricPoint, Report, RunDetail } from "../types";
+
+function BuildReportForm({
+  runName,
+  defaultTeacher,
+  onSubmitted,
+}: {
+  runName: string;
+  defaultTeacher: string;
+  onSubmitted: (jobId: string) => void;
+}) {
+  const [datasets, setDatasets] = useState<DatasetInfo[]>([]);
+  const [dataset, setDataset] = useState("");
+  const [judge, setJudge] = useState("");
+  const [teacher, setTeacher] = useState(defaultTeacher);
+  const [n, setN] = useState(24);
+  const [costPerHour, setCostPerHour] = useState<number | "">("");
+  const [busy, setBusy] = useState(false);
+  const toast = useToast();
+
+  useEffect(() => {
+    api<DatasetInfo[]>("/api/datasets").then((ds) => {
+      setDatasets(ds);
+      if (ds.length) setDataset((cur) => cur || ds[0].name);
+    });
+  }, []);
+
+  const submit = async () => {
+    setBusy(true);
+    try {
+      const job = await api<Job>("/api/jobs/report", {
+        method: "POST",
+        body: JSON.stringify({
+          run: runName,
+          dataset,
+          n,
+          ...(judge ? { judge } : {}),
+          ...(teacher ? { teacher } : {}),
+          ...(costPerHour !== "" ? { cost_per_hour: costPerHour } : {}),
+        }),
+      });
+      toast("Building the report card — the student answers every prompt, so give it a few minutes.");
+      onSubmitted(job.id);
+    } catch (e) {
+      toast(`Report failed to start: ${(e as Error).message}`, true);
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="card" style={{ marginBottom: 16 }}>
+      <div className="card-head">Build report card</div>
+      <div className="card-body" style={{ display: "grid", gap: 14 }}>
+        <div className="grid-4">
+          <div className="field">
+            <label>Eval dataset</label>
+            <select className="select" value={dataset} onChange={(e) => setDataset(e.target.value)}>
+              {datasets.map((ds) => (
+                <option key={ds.name} value={ds.name}>
+                  {ds.name} ({ds.records})
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="field">
+            <label>Judge (optional)</label>
+            <input
+              className="input mono"
+              value={judge}
+              onChange={(e) => setJudge(e.target.value)}
+              placeholder="claude"
+            />
+            <span className="hint">blind A/B quality retention; empty = benchmarks only</span>
+          </div>
+          <div className="field">
+            <label>Teacher (for side-by-side)</label>
+            <input className="input mono" value={teacher} onChange={(e) => setTeacher(e.target.value)} />
+          </div>
+          <div className="field">
+            <label>Prompts (n)</label>
+            <input
+              className="input"
+              type="number"
+              min={1}
+              max={200}
+              value={n}
+              onChange={(e) => setN(Number(e.target.value))}
+            />
+          </div>
+        </div>
+        <div className="grid-4" style={{ alignItems: "end" }}>
+          <div className="field">
+            <label>Hardware $/hour (optional)</label>
+            <input
+              className="input"
+              type="number"
+              step="any"
+              min={0}
+              value={costPerHour}
+              placeholder="1.20"
+              onChange={(e) =>
+                setCostPerHour(e.target.value === "" ? "" : Number(e.target.value))
+              }
+            />
+            <span className="hint">prices $/1K tokens in the efficiency table</span>
+          </div>
+          <div>
+            <button className="btn btn-primary" disabled={busy || !dataset} onClick={submit}>
+              Build report
+            </button>
+          </div>
+        </div>
+        <div className="hint" style={{ color: "var(--muted)", fontSize: 12 }}>
+          API judges (e.g. <code>claude</code>) read their key from the environment where{" "}
+          <code>distill ui</code> runs.
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function BenchTable({ report }: { report: Report }) {
   const rows: [string, keyof Benchmark, number][] = [
@@ -130,6 +249,8 @@ export function RunDetailPage() {
   // Bumped on restart: tears down the SSE stream and re-tails from scratch.
   const [epoch, setEpoch] = useState(0);
   const [confirmRestart, setConfirmRestart] = useState(false);
+  const [showReportForm, setShowReportForm] = useState(false);
+  const [reportJobId, setReportJobId] = useState<string | null>(null);
   const toast = useToast();
   const logRef = useRef<HTMLDivElement>(null);
   const seenSteps = useRef<Set<string>>(new Set());
@@ -178,6 +299,26 @@ export function RunDetailPage() {
 
   // Keep header state fresh — catches restarts and CLI-side changes.
   usePoll(refresh, 5000, [name]);
+
+  // Track an in-flight report job until it lands (the refresh poll then
+  // picks up report.json and renders the card).
+  usePoll(
+    async () => {
+      if (!reportJobId) return;
+      const jobs = await api<Job[]>("/api/jobs");
+      const job = jobs.find((j) => j.id === reportJobId);
+      if (!job || job.status === "queued" || job.status === "running") return;
+      setReportJobId(null);
+      if (job.status === "completed") {
+        toast("Report card ready");
+        refresh();
+      } else {
+        toast(`Report build ${job.status} — see the Jobs drawer for details`, true);
+      }
+    },
+    4000,
+    [reportJobId],
+  );
 
   useEffect(() => {
     if (!showLogs) return;
@@ -241,6 +382,15 @@ export function RunDetailPage() {
           )}
         </div>
         <div style={{ display: "flex", gap: 8 }}>
+          {run && run.state !== "running" && run.state !== "queued" && (
+            <button
+              className="btn"
+              disabled={!!reportJobId}
+              onClick={() => setShowReportForm((v) => !v)}
+            >
+              {reportJobId ? "Building report…" : report ? "Rebuild report" : "Build report"}
+            </button>
+          )}
           <button className="btn" onClick={() => setShowConfig((v) => !v)}>
             Config
           </button>
@@ -276,6 +426,17 @@ export function RunDetailPage() {
         <div className="card card-body mono" style={{ color: "var(--danger)", marginBottom: 16 }}>
           {run.error}
         </div>
+      )}
+
+      {showReportForm && run && (
+        <BuildReportForm
+          runName={name}
+          defaultTeacher={run.teacher ?? ""}
+          onSubmitted={(jobId) => {
+            setReportJobId(jobId);
+            setShowReportForm(false);
+          }}
+        />
       )}
 
       <div className="grid-4" style={{ marginBottom: 16 }}>
@@ -369,13 +530,12 @@ export function RunDetailPage() {
         <ReportCard report={report} />
       ) : (
         run &&
-        run.state !== "running" && (
+        run.state !== "running" &&
+        run.state !== "queued" && (
           <div className="card card-body" style={{ color: "var(--muted)" }}>
-            No report card yet — build one with{" "}
-            <code>
-              distill report runs/{name} --dataset data/train.jsonl --judge claude
-            </code>{" "}
-            or from the Datasets page after picking an eval set.
+            {reportJobId
+              ? "Building the report card — it will appear here when the judge and benchmarks finish."
+              : "No report card yet — click Build report above to judge this student and benchmark it against the teacher."}
           </div>
         )
       )}
