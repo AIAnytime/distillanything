@@ -1,13 +1,10 @@
-<div align="center"><pre>
-  ██████╗ ██╗███████╗████████╗██╗██╗     ██╗
-  ██╔══██╗██║██╔════╝╚══██╔══╝██║██║     ██║
-  ██║  ██║██║███████╗   ██║   ██║██║     ██║
-  ██║  ██║██║╚════██║   ██║   ██║██║     ██║
-  ██████╔╝██║███████║   ██║   ██║███████╗███████╗
-  ╚═════╝ ╚═╝╚══════╝   ╚═╝   ╚═╝╚══════╝╚══════╝
-              A N Y T H I N G
-     Distill any model into one you own
-</pre></div>
+<div align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/AIAnytime/distillanything/main/media/logo_dark.png">
+    <img src="https://raw.githubusercontent.com/AIAnytime/distillanything/main/media/logo_light.png" alt="Distill Anything — Smaller Models. Greater Impact." width="420">
+  </picture>
+  <p><em>Distill any model into one you own.</em></p>
+</div>
 
 <p align="center"><strong>generate → distill → judge → benchmark · white-box KD + black-box seqKD · any teacher (Claude / GPT / HF / Ollama) · LLM-as-judge report card · runs on a MacBook</strong></p>
 
@@ -16,7 +13,7 @@
   <a href="https://pypi.org/project/distill-anything/"><img src="https://img.shields.io/pypi/v/distill-anything.svg" alt="PyPI"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-green" alt="License: Apache 2.0"></a>
-  <a href="#development"><img src="https://img.shields.io/badge/tests-36%20passing%20offline-brightgreen" alt="Tests"></a>
+  <a href="#development"><img src="https://img.shields.io/badge/tests-61%20passing%20offline-brightgreen" alt="Tests"></a>
   <a href="#whats-real-today-vs-the-vision"><img src="https://img.shields.io/badge/status-alpha-orange" alt="Status: alpha"></a>
   <a href="https://github.com/astral-sh/ruff"><img src="https://img.shields.io/badge/code%20style-ruff-261230" alt="Code style: ruff"></a>
 </p>

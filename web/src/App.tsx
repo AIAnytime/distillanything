@@ -34,7 +34,11 @@ function Topbar({ onJobs }: { onJobs: () => void }) {
   return (
     <header className="topbar">
       <NavLink to="/" className="brand">
-        <span className="brand-mark">D</span>
+        <img
+          className="brand-logo"
+          src={theme === "light" ? "/logo-mark-light.png" : "/logo-mark.png"}
+          alt=""
+        />
         Distill Anything
       </NavLink>
       <nav className="nav">

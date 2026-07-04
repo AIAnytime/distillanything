@@ -11,7 +11,11 @@ from rich.table import Table
 
 app = typer.Typer(
     name="distill",
-    help="Distill Anything — generate data from teachers, distill students, evaluate, benchmark.",
+    help=(
+        "Distill Anything — Smaller Models. Greater Impact.\n\n"
+        "Generate data from teachers, distill students, evaluate, benchmark — "
+        "and watch it all live with `distill ui`."
+    ),
     no_args_is_help=True,
     pretty_exceptions_show_locals=False,
 )
