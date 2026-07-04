@@ -146,7 +146,7 @@ pip install "distill-anything[ui]"
 distill ui
 ```
 
-One command starts a local dashboard (dark-first, W&B-style) over your `runs/` and `data/` directories:
+One command starts a local dashboard over your `runs/` and `data/` directories:
 
 - **Live training charts** — loss/KD/CE/LR stream in over SSE while a run trains. Runs started from the **CLI show up too**: the trainer writes `metrics.jsonl` + `status.json` into every run dir, and the UI just tails files.
 - **Report cards** — quality retention, win/tie/lose, and the efficiency table rendered per run.
