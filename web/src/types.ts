@@ -4,6 +4,7 @@ export interface MetricPoint {
   loss?: number;
   kd?: number;
   ce?: number;
+  hid?: number;
   lr?: number;
   elapsed_s?: number;
   eval_loss?: number;

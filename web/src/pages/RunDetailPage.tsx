@@ -533,6 +533,10 @@ export function RunDetailPage() {
               { key: "loss", label: "total", color: chartColors.loss },
               { key: "kd", label: "kd", color: chartColors.kd },
               { key: "ce", label: "ce", color: chartColors.ce },
+              // only present on hidden-state KD runs; uPlot skips null series cleanly
+              ...(points.some((p) => p.hid !== undefined)
+                ? [{ key: "hid" as const, label: "hidden", color: "#ff9bce" }]
+                : []),
             ]}
           />
         </div>

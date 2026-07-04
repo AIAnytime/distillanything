@@ -91,7 +91,16 @@ class Student:
         else:
             cfg.mode = mode  # type: ignore[assignment]
         for key, value in overrides.items():
-            if hasattr(cfg.train, key):
+            if key == "hidden":
+                # hidden=True, hidden={"weight": 0.5}, or a HiddenKDConfig all work.
+                from distillanything.config import HiddenKDConfig
+
+                if value is True:
+                    value = HiddenKDConfig()
+                elif isinstance(value, dict):
+                    value = HiddenKDConfig.model_validate(value)
+                cfg.loss.hidden = value or None
+            elif hasattr(cfg.train, key):
                 setattr(cfg.train, key, value)
             elif hasattr(cfg.loss, key):
                 setattr(cfg.loss, key, value)

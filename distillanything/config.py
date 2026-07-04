@@ -70,6 +70,17 @@ class DataConfig(BaseModel):
     min_response_chars: int = 1
 
 
+class HiddenKDConfig(BaseModel):
+    """Hidden-state (feature) KD: match the teacher's intermediate representations
+    through small learned projectors (trained jointly, discarded at save — zero
+    inference cost). Logit mode only; a dense extra signal that helps most at
+    small data scales."""
+
+    weight: float = 1.0  # total += weight * hidden_loss
+    metric: Literal["mse", "cosine"] = "mse"
+    layers: Literal["uniform", "last"] = "uniform"
+
+
 class LossConfig(BaseModel):
     kind: Literal["forward_kl", "reverse_kl", "jsd"] = "forward_kl"
     temperature: float = 2.0
@@ -78,6 +89,8 @@ class LossConfig(BaseModel):
     # Truncate KD to the teacher's top-k logits (memory saver on small devices).
     top_k: Optional[int] = None
     jsd_beta: float = 0.5
+    # Optional third term: hidden-state KD (see HiddenKDConfig).
+    hidden: Optional[HiddenKDConfig] = None
 
 
 class TrainConfig(BaseModel):

@@ -1,0 +1,28 @@
+# Hidden-state KD on a MacBook: the mac-small pair plus feature matching.
+# The student learns the teacher's intermediate representations through small
+# learned projectors (576 -> 960 wide, one per matched layer) that train jointly
+# and are discarded at save time — the checkpoint stays a plain HF model.
+mode: logit
+teacher:
+  spec: hf:HuggingFaceTB/SmolLM2-360M-Instruct
+student:
+  model: HuggingFaceTB/SmolLM2-135M-Instruct
+data:
+  path: data/train.jsonl
+  max_seq_len: 512
+loss:
+  kind: forward_kl
+  temperature: 2.0
+  alpha: 0.5
+  top_k: 256
+  hidden:
+    weight: 1.0        # total = alpha*KD + (1-alpha)*CE + weight*hidden
+    metric: mse        # or cosine
+    layers: uniform    # student layer i -> teacher layer at same relative depth
+train:
+  output_dir: runs/mac-hidden-kd
+  lr: 1.0e-4
+  epochs: 2
+  batch_size: 2
+  grad_accum: 8
+  log_every: 10

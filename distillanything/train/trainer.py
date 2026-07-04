@@ -28,6 +28,7 @@ from torch.utils.data import DataLoader, Dataset
 from distillanything.config import DistillConfig
 from distillanything.data.tokenize import pad_collate
 from distillanything.hardware import autocast_dtype, best_device
+from distillanything.losses.hidden import HiddenProjectors, hidden_kd_loss, match_layers
 from distillanything.losses.kd import kd_loss
 
 console = Console()
@@ -74,6 +75,18 @@ class DistillTrainer:
             for p in self.teacher.parameters():
                 p.requires_grad_(False)
             self._check_vocab_compat()
+        # Hidden-state KD: train-time projectors (student width -> teacher width),
+        # jointly optimized, never saved with the student.
+        self.projectors: Optional[HiddenProjectors] = None
+        self._layer_pairs: list[tuple[int, int]] = []
+        if cfg.mode == "logit" and cfg.loss.hidden is not None:
+            s_conf, t_conf = self.student.config, self.teacher.config
+            self._layer_pairs = match_layers(
+                s_conf.num_hidden_layers, t_conf.num_hidden_layers, cfg.loss.hidden.layers
+            )
+            self.projectors = HiddenProjectors(
+                len(self._layer_pairs), s_conf.hidden_size, t_conf.hidden_size
+            ).to(self.device)
         self.train_dataset = train_dataset
         self.eval_dataset = eval_dataset
         self.history: list[dict] = []
@@ -142,11 +155,10 @@ class DistillTrainer:
 
         # Only trainable params (with LoRA that's the adapters — the reason a 1-3B
         # student fits on a laptop: no AdamW moments for frozen base weights).
-        optimizer = torch.optim.AdamW(
-            (p for p in self.student.parameters() if p.requires_grad),
-            lr=cfg.train.lr,
-            weight_decay=cfg.train.weight_decay,
-        )
+        trainable = [p for p in self.student.parameters() if p.requires_grad]
+        if self.projectors is not None:
+            trainable += list(self.projectors.parameters())
+        optimizer = torch.optim.AdamW(trainable, lr=cfg.train.lr, weight_decay=cfg.train.weight_decay)
         scheduler = _cosine_with_warmup(optimizer, warmup_steps, total_steps)
         amp_dtype = autocast_dtype(self.device)
 
@@ -164,7 +176,7 @@ class DistillTrainer:
         self.student.train()
         step = 0
         accumulated = 0
-        running: dict[str, float] = {"total": 0.0, "kd": 0.0, "ce": 0.0, "n": 0}
+        running: dict[str, float] = {"total": 0.0, "kd": 0.0, "ce": 0.0, "hid": 0.0, "n": 0}
         start_time = time.time()
         done = False
 
@@ -179,44 +191,63 @@ class DistillTrainer:
                         if amp_dtype
                         else contextlib.nullcontext()
                     )
+                    want_hidden = self.projectors is not None
+                    need_teacher = cfg.mode == "logit" and (cfg.loss.alpha > 0 or want_hidden)
                     with context:
                         out = self.student(
                             input_ids=batch["input_ids"],
                             attention_mask=batch["attention_mask"],
                             labels=batch["labels"],
+                            output_hidden_states=want_hidden,
                         )
                         ce = out.loss
-                        if cfg.mode == "logit" and cfg.loss.alpha > 0:
+                        kd = torch.zeros((), device=self.device)
+                        hid = torch.zeros((), device=self.device)
+                        if need_teacher:
                             with torch.no_grad():
-                                # .float(): teachers may run in fp16/bf16 to save memory;
-                                # KL in half precision is numerically unstable.
-                                teacher_logits = self.teacher(
+                                teacher_out = self.teacher(
                                     input_ids=batch["input_ids"],
                                     attention_mask=batch["attention_mask"],
-                                ).logits.float()
-                            kd = kd_loss(
-                                out.logits,
-                                teacher_logits,
-                                batch["labels"],
-                                kind=cfg.loss.kind,
-                                temperature=cfg.loss.temperature,
-                                top_k=cfg.loss.top_k,
-                                jsd_beta=cfg.loss.jsd_beta,
-                            )
+                                    output_hidden_states=want_hidden,
+                                )
+                            if cfg.loss.alpha > 0:
+                                # .float(): teachers may run in fp16/bf16 to save memory;
+                                # KL in half precision is numerically unstable.
+                                kd = kd_loss(
+                                    out.logits,
+                                    teacher_out.logits.float(),
+                                    batch["labels"],
+                                    kind=cfg.loss.kind,
+                                    temperature=cfg.loss.temperature,
+                                    top_k=cfg.loss.top_k,
+                                    jsd_beta=cfg.loss.jsd_beta,
+                                )
+                            if want_hidden:
+                                hid = hidden_kd_loss(
+                                    out.hidden_states,
+                                    teacher_out.hidden_states,
+                                    self.projectors,
+                                    batch["labels"],
+                                    self._layer_pairs,
+                                    metric=cfg.loss.hidden.metric,
+                                )
+                        if cfg.mode == "logit" and cfg.loss.alpha > 0:
                             loss = cfg.loss.alpha * kd + (1 - cfg.loss.alpha) * ce
                         else:
-                            kd = torch.zeros((), device=self.device)
                             loss = ce
+                        if want_hidden:
+                            loss = loss + cfg.loss.hidden.weight * hid
 
                     (loss / cfg.train.grad_accum).backward()
                     accumulated += 1
                     running["total"] += loss.item()
                     running["kd"] += kd.item()
                     running["ce"] += ce.item()
+                    running["hid"] += hid.item()
                     running["n"] += 1
 
                     if accumulated % cfg.train.grad_accum == 0:
-                        torch.nn.utils.clip_grad_norm_(self.student.parameters(), cfg.train.grad_clip)
+                        torch.nn.utils.clip_grad_norm_(trainable, cfg.train.grad_clip)
                         optimizer.step()
                         scheduler.step()
                         optimizer.zero_grad(set_to_none=True)
@@ -232,14 +263,17 @@ class DistillTrainer:
                                 "lr": scheduler.get_last_lr()[0],
                                 "elapsed_s": round(time.time() - start_time, 1),
                             }
+                            if self.projectors is not None:
+                                entry["hid"] = running["hid"] / n
                             self.history.append(entry)
                             self._append_metric({"kind": "train", **entry})
+                            hid_part = f"  hid {entry['hid']:.4f}" if "hid" in entry else ""
                             console.print(
                                 f"  step {entry['step']:>5}/{total_steps}  "
                                 f"loss {entry['loss']:.4f}  kd {entry['kd']:.4f}  "
-                                f"ce {entry['ce']:.4f}  lr {entry['lr']:.2e}"
+                                f"ce {entry['ce']:.4f}{hid_part}  lr {entry['lr']:.2e}"
                             )
-                            running = {"total": 0.0, "kd": 0.0, "ce": 0.0, "n": 0}
+                            running = {"total": 0.0, "kd": 0.0, "ce": 0.0, "hid": 0.0, "n": 0}
 
                         if cfg.train.eval_every and step % cfg.train.eval_every == 0:
                             eval_metrics = self.evaluate()
