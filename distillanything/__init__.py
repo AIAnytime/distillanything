@@ -14,7 +14,7 @@ from distillanything.config import (
 )
 from distillanything.student import Student
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 __all__ = [
     "Student",
