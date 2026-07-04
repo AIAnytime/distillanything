@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "distill-anything"
-version = "0.3.0"
+version = "0.4.0"
 description = "The open-source lifecycle framework for distilling any model: generate data from teachers, distill students, evaluate, and benchmark."
 readme = "README.md"
 license = "Apache-2.0"
