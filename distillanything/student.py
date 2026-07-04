@@ -145,7 +145,14 @@ class Student:
         )
         return trainer.train()
 
-    def generate(self, prompt: str, max_new_tokens: int = 256) -> str:
+    def generate(
+        self,
+        prompt: str,
+        max_new_tokens: int = 256,
+        repetition_penalty: Optional[float] = None,
+    ) -> str:
+        """Greedy by default (reproducible). Small students love to loop —
+        ``repetition_penalty=1.3`` is the usual first fix."""
         import torch
 
         from distillanything.hardware import best_device
@@ -160,12 +167,14 @@ class Student:
         else:
             text = prompt
         inputs = self.tokenizer(text, return_tensors="pt").to(device)
+        extra = {"repetition_penalty": repetition_penalty} if repetition_penalty else {}
         with torch.no_grad():
             out = self.model.generate(
                 **inputs,
                 max_new_tokens=max_new_tokens,
                 do_sample=False,
                 pad_token_id=self.tokenizer.pad_token_id,
+                **extra,
             )
         return self.tokenizer.decode(out[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
 

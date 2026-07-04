@@ -46,10 +46,19 @@ def generate(
     concurrency: int = typer.Option(4, help="Parallel requests for API teachers"),
     judge: Optional[str] = typer.Option(None, help="Judge spec to quality-score records (e.g. claude)"),
     min_score: int = typer.Option(7, help="Drop records the judge scores below this (1-10)"),
+    eval_fraction: float = typer.Option(
+        0.1,
+        help="Hold out this fraction as <out>.eval.jsonl for honest report cards (0 disables)",
+    ),
+    split_seed: int = typer.Option(0, help="Seed for the train/eval split"),
 ):
-    """Generate a training dataset from seed prompts using a teacher."""
+    """Generate a training dataset from seed prompts using a teacher.
+
+    By default 10% of records are held out to a sibling .eval.jsonl file BEFORE
+    training ever sees them — evaluate on that file, not on the training set.
+    """
     from distillanything.data.formats import save_records
-    from distillanything.data.generate import generate_dataset
+    from distillanything.data.generate import eval_split_path, generate_dataset, split_records
     from distillanything.teachers.registry import resolve_teacher
 
     teacher_obj = resolve_teacher(teacher, concurrency=concurrency)
@@ -62,10 +71,21 @@ def generate(
         judge_obj = resolve_teacher(judge, concurrency=concurrency)
         console.print(f"Quality-scoring {len(records)} records with [cyan]{judge_obj.name}[/]...")
         scored = score_records(judge_obj, records)
-        kept = filter_by_score(scored, min_score)
-        save_records(kept, out)
+        records = filter_by_score(scored, min_score)
+        save_records(records, out)
         console.print(
-            f"[green]Kept {len(kept)}/{len(scored)}[/] records with judge_score >= {min_score}"
+            f"[green]Kept {len(records)}/{len(scored)}[/] records with judge_score >= {min_score}"
+        )
+    train_records, eval_records = split_records(records, eval_fraction, seed=split_seed)
+    if eval_records:
+        eval_path = eval_split_path(out)
+        save_records(train_records, out)
+        save_records(eval_records, eval_path)
+        console.print(
+            f"[green]Split:[/] {len(train_records)} train -> {out} · "
+            f"{len(eval_records)} held-out eval -> {eval_path}\n"
+            f"Train on [bold]{out}[/]; point [bold]distill report --dataset[/] at "
+            f"[bold]{eval_path}[/] for honest numbers."
         )
 
 
@@ -125,12 +145,17 @@ def chat(
     model: str = typer.Argument(..., help="HF repo or local path (e.g. your distilled run dir)"),
     prompt: str = typer.Option(..., "--prompt", "-p", help="Prompt to send"),
     max_new_tokens: int = typer.Option(256),
+    repetition_penalty: Optional[float] = typer.Option(
+        None, help="Penalize repeated tokens (try 1.3 if a small student loops)"
+    ),
 ):
     """One-shot generation from a (distilled) model — quick vibe check."""
     from distillanything.student import Student
 
     student = Student(model)
-    console.print(student.generate(prompt, max_new_tokens=max_new_tokens))
+    console.print(
+        student.generate(prompt, max_new_tokens=max_new_tokens, repetition_penalty=repetition_penalty)
+    )
 
 
 @app.command()

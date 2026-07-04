@@ -54,12 +54,20 @@ export interface Benchmark {
   cost_per_1k_tokens_usd?: number;
 }
 
+export interface Contamination {
+  overlap: number;
+  n: number;
+  fraction: number;
+  train_dataset: string;
+}
+
 export interface Report {
   student_name: string;
   teacher_name: string | null;
   dataset: string;
   generated_on: string;
   n_prompts: number;
+  contamination?: Contamination | null;
   judge?: JudgeSummary;
   judge_name?: string;
   train_eval?: Record<string, number>;

@@ -60,8 +60,9 @@ class TieJudge(Teacher):
 
 
 def test_build_report_end_to_end(tmp_path):
-    """Full report flow against a real (tiny) saved run directory."""
-    from distillanything.config import DistillConfig, TrainConfig
+    """Full report flow against a real (tiny) saved run directory — including the
+    contamination guard in both directions."""
+    from distillanything.config import DataConfig, DistillConfig, TrainConfig
     from distillanything.data.formats import save_records
     from distillanything.data.tokenize import SFTDataset
     from distillanything.testing import tiny_records, tiny_student_and_teacher, tiny_tokenizer
@@ -70,30 +71,39 @@ def test_build_report_end_to_end(tmp_path):
     tokenizer = tiny_tokenizer()
     student, _ = tiny_student_and_teacher(len(tokenizer))
     run_dir = tmp_path / "run"
+    train_records = tiny_records(16)
+    train_path = tmp_path / "train.jsonl"
+    save_records(train_records, train_path)
     cfg = DistillConfig(
         mode="seqkd",
+        data=DataConfig(path=str(train_path)),
         train=TrainConfig(output_dir=str(run_dir), max_steps=2, batch_size=4, grad_accum=1),
     )
-    train_ds = SFTDataset(tiny_records(16), tokenizer, max_seq_len=96)
+    train_ds = SFTDataset(train_records, tokenizer, max_seq_len=96)
     DistillTrainer(student, tokenizer, train_ds, cfg).train()
 
+    # Contaminated: eval prompts are a subset of the training data.
     dataset_path = tmp_path / "eval.jsonl"
     save_records(tiny_records(8), dataset_path)
-
     report_path = build_report(
-        run_dir,
-        dataset_path,
-        teacher=EchoTeacher(),
-        judge=TieJudge(),
-        n=4,
-        max_new_tokens=8,
+        run_dir, dataset_path, teacher=EchoTeacher(), judge=TieJudge(), n=4, max_new_tokens=8
     )
     assert report_path.exists()
     md = report_path.read_text()
     assert "Quality (LLM-as-judge)" in md
     assert "Efficiency" in md
+    assert "Data contamination" in md
 
     report_json = json.loads((run_dir / "report.json").read_text())
     assert report_json["judge"]["n"] == 4
     assert report_json["judge"]["tie_rate"] == 1.0
     assert report_json["student_benchmark"]["latency_p50_s"] >= 0
+    assert report_json["contamination"]["fraction"] == 1.0
+
+    # Disjoint: held-out prompts get the clean bill of health.
+    clean_path = tmp_path / "heldout.jsonl"
+    save_records([{"prompt": f"unseen {i}", "response": "x"} for i in range(6)], clean_path)
+    build_report(run_dir, clean_path, teacher=EchoTeacher(), judge=TieJudge(), n=4, max_new_tokens=8)
+    report_json = json.loads((run_dir / "report.json").read_text())
+    assert report_json["contamination"]["overlap"] == 0
+    assert "disjoint from the training data" in (run_dir / "REPORT.md").read_text()

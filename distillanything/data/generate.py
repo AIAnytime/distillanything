@@ -6,6 +6,7 @@ and it manufactures an instruction dataset for the student.
 
 from __future__ import annotations
 
+import random
 from pathlib import Path
 from typing import Optional
 
@@ -32,6 +33,33 @@ def expand_prompts(teacher: Teacher, seeds: list[str], per_seed: int = 5, max_to
     for output in outputs:
         expanded.extend(line.strip() for line in output.splitlines() if line.strip())
     return expanded
+
+
+def split_records(
+    records: list[dict], eval_fraction: float, seed: int = 0
+) -> tuple[list[dict], list[dict]]:
+    """Deterministically split records into (train, eval) with disjoint prompts.
+
+    Held out at *generation* time, before training ever sees the data — the only
+    split that makes report-card numbers honest. Records sharing an identical
+    prompt land on the same side.
+    """
+    if eval_fraction <= 0 or len(records) < 4:
+        return records, []
+    rng = random.Random(seed)
+    shuffled = records[:]
+    rng.shuffle(shuffled)
+    n_eval = max(1, int(len(shuffled) * eval_fraction))
+    eval_records = shuffled[:n_eval]
+    eval_prompts = {r.get("prompt") for r in eval_records}
+    train_records = [r for r in shuffled[n_eval:] if r.get("prompt") not in eval_prompts]
+    return train_records, eval_records
+
+
+def eval_split_path(out_path: str | Path) -> Path:
+    """data/train.jsonl -> data/train.eval.jsonl (lineage stays visible)."""
+    out = Path(out_path)
+    return out.with_name(out.stem + ".eval.jsonl")
 
 
 def generate_dataset(

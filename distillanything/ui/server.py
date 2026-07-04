@@ -67,6 +67,7 @@ class GenerateJobRequest(_RequestModel):
     judge: Optional[str] = None
     min_score: int = Field(7, ge=1, le=10)
     concurrency: int = Field(4, ge=1, le=32)
+    eval_fraction: float = Field(0.1, ge=0, le=0.5)
 
     _teacher = field_validator("teacher")(_check_spec)
     _judge = field_validator("judge")(_check_spec)
@@ -314,7 +315,7 @@ def create_app(
         argv = cli_argv(
             "generate", str(seeds), "--out", str(out_path), "--teacher", body.teacher,
             "--max-tokens", str(body.max_tokens), "--expand", str(body.expand),
-            "--concurrency", str(body.concurrency),
+            "--concurrency", str(body.concurrency), "--eval-fraction", str(body.eval_fraction),
         )
         if body.system:
             argv += ["--system", body.system]

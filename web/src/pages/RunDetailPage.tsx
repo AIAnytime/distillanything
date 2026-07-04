@@ -16,10 +16,13 @@ import type { Benchmark, DatasetInfo, Job, MetricPoint, Report, RunDetail } from
 function BuildReportForm({
   runName,
   defaultTeacher,
+  trainDataset,
   onSubmitted,
 }: {
   runName: string;
   defaultTeacher: string;
+  /** basename of the dataset this run trained on — flagged in the picker */
+  trainDataset: string | null;
   onSubmitted: (jobId: string) => void;
 }) {
   const [datasets, setDatasets] = useState<DatasetInfo[]>([]);
@@ -34,8 +37,14 @@ function BuildReportForm({
   useEffect(() => {
     api<DatasetInfo[]>("/api/datasets").then((ds) => {
       setDatasets(ds);
-      if (ds.length) setDataset((cur) => cur || ds[0].name);
+      if (!ds.length) return;
+      // Honest default: prefer a held-out .eval.jsonl split, then anything the
+      // run did NOT train on, and only then fall back to the training set.
+      const evalSplit = ds.find((d) => d.name.endsWith(".eval.jsonl"));
+      const untrained = ds.find((d) => d.name !== trainDataset);
+      setDataset((cur) => cur || (evalSplit ?? untrained ?? ds[0]).name);
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const submit = async () => {
@@ -70,10 +79,16 @@ function BuildReportForm({
             <select className="select" value={dataset} onChange={(e) => setDataset(e.target.value)}>
               {datasets.map((ds) => (
                 <option key={ds.name} value={ds.name}>
-                  {ds.name} ({ds.records})
+                  {ds.name} ({ds.records}){ds.name === trainDataset ? " — ⚠ training data" : ""}
+                  {ds.name.endsWith(".eval.jsonl") ? " — held-out ✓" : ""}
                 </option>
               ))}
             </select>
+            {dataset === trainDataset && (
+              <span className="hint" style={{ color: "var(--amber)" }}>
+                this run trained on that file — quality numbers will be optimistic
+              </span>
+            )}
           </div>
           <div className="field">
             <label>Judge (optional)</label>
@@ -170,8 +185,25 @@ function BenchTable({ report }: { report: Report }) {
 
 function ReportCard({ report }: { report: Report }) {
   const judge = report.judge;
+  const contamination = report.contamination;
   return (
     <>
+      {contamination && contamination.overlap > 0 && (
+        <div
+          className="card card-body"
+          style={{ borderLeft: "3px solid var(--amber)", color: "var(--amber)" }}
+        >
+          ⚠ Data contamination: {contamination.overlap} of {contamination.n} eval prompts (
+          {(contamination.fraction * 100).toFixed(0)}%) appear in the training data — the quality
+          numbers below are optimistic. Rebuild this report against the held-out{" "}
+          <code>.eval.jsonl</code> split.
+        </div>
+      )}
+      {contamination && contamination.overlap === 0 && (
+        <div className="card card-body" style={{ color: "var(--ok)", fontSize: 12.5 }}>
+          ✓ Honest eval: all {contamination.n} prompts are disjoint from the training data.
+        </div>
+      )}
       {judge && (
         <div className="card">
           <div className="card-head">
@@ -432,6 +464,11 @@ export function RunDetailPage() {
         <BuildReportForm
           runName={name}
           defaultTeacher={run.teacher ?? ""}
+          trainDataset={
+            ((run.config as { data?: { path?: string } } | null)?.data?.path ?? "")
+              .split("/")
+              .pop() || null
+          }
           onSubmitted={(jobId) => {
             setReportJobId(jobId);
             setShowReportForm(false);

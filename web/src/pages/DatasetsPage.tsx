@@ -10,6 +10,7 @@ function GenerateForm({ onSubmitted }: { onSubmitted: () => void }) {
   const [teacher, setTeacher] = useState("hf:HuggingFaceTB/SmolLM2-360M-Instruct");
   const [seeds, setSeeds] = useState("");
   const [expand, setExpand] = useState(0);
+  const [evalFraction, setEvalFraction] = useState(0.1);
   const [judge, setJudge] = useState("");
   const [minScore, setMinScore] = useState(7);
   const [busy, setBusy] = useState(false);
@@ -25,6 +26,7 @@ function GenerateForm({ onSubmitted }: { onSubmitted: () => void }) {
           teacher,
           seeds_text: seeds,
           expand,
+          eval_fraction: evalFraction,
           ...(judge ? { judge, min_score: minScore } : {}),
         }),
       });
@@ -80,6 +82,21 @@ function GenerateForm({ onSubmitted }: { onSubmitted: () => void }) {
         />
       </div>
       <div className="grid-3" style={{ alignItems: "end" }}>
+        <div className="field">
+          <label>Held-out eval fraction</label>
+          <input
+            className="input"
+            type="number"
+            step={0.05}
+            min={0}
+            max={0.5}
+            value={evalFraction}
+            onChange={(e) => setEvalFraction(Number(e.target.value))}
+          />
+          <span className="hint">
+            written to &lt;name&gt;.eval.jsonl — evaluate on this, never on training data
+          </span>
+        </div>
         <div className="field">
           <label>Judge (optional quality gate)</label>
           <input

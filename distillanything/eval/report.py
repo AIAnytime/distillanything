@@ -28,6 +28,34 @@ def _fmt(value) -> str:
     return "—" if value is None else str(value)
 
 
+def _normalize_prompt(text: str) -> str:
+    return " ".join(text.lower().split())
+
+
+def check_contamination(run_dir: Path, eval_prompts: list[str]) -> Optional[dict]:
+    """How many eval prompts did the student train on? Reads the run's config
+    snapshot to find its training data. None when the training set can't be found."""
+    cfg_path = Path(run_dir) / "distill_config.json"
+    if not cfg_path.exists() or not eval_prompts:
+        return None
+    try:
+        train_path = json.loads(cfg_path.read_text())["data"]["path"]
+    except (json.JSONDecodeError, KeyError):
+        return None
+    if not Path(train_path).exists():
+        return None
+    train_prompts = {
+        _normalize_prompt(r["prompt"]) for r in load_records(train_path) if r.get("prompt")
+    }
+    overlap = sum(1 for p in eval_prompts if _normalize_prompt(p) in train_prompts)
+    return {
+        "overlap": overlap,
+        "n": len(eval_prompts),
+        "fraction": round(overlap / len(eval_prompts), 4),
+        "train_dataset": str(train_path),
+    }
+
+
 def render_report(data: dict) -> str:
     """Pure markdown rendering of a report dict (see build_report for the shape)."""
     lines: list[str] = []
@@ -35,6 +63,23 @@ def render_report(data: dict) -> str:
     lines.append("")
     lines.append(f"*Generated {data.get('generated_on', date.today().isoformat())} by Distill Anything*")
     lines.append("")
+
+    contamination = data.get("contamination")
+    if contamination:
+        if contamination["overlap"] > 0:
+            pct = contamination["fraction"] * 100
+            lines.append(
+                f"> ⚠️ **Data contamination:** {contamination['overlap']} of {contamination['n']} "
+                f"eval prompts ({pct:.0f}%) appear in the training data "
+                f"(`{contamination['train_dataset']}`). Quality numbers below are **optimistic** — "
+                f"evaluate on the held-out split `distill generate` writes by default."
+            )
+        else:
+            lines.append(
+                f"> ✅ Eval prompts are disjoint from the training data "
+                f"(0/{contamination['n']} overlap with `{contamination['train_dataset']}`)."
+            )
+        lines.append("")
 
     judge = data.get("judge")
     if judge and judge.get("n", 0) > 0:
@@ -204,6 +249,15 @@ def build_report(
         "generated_on": date.today().isoformat(),
         "n_prompts": len(prompts),
     }
+
+    data["contamination"] = check_contamination(run_dir, prompts)
+    if data["contamination"] and data["contamination"]["overlap"] > 0:
+        c = data["contamination"]
+        console.print(
+            f"[yellow]Warning:[/] {c['overlap']}/{c['n']} eval prompts appear in the training "
+            f"data — quality numbers will be optimistic. Evaluate on a held-out split "
+            f"(distill generate writes one by default)."
+        )
 
     if judge_obj is not None:
         console.print(f"Judging student vs reference with [cyan]{judge_obj.name}[/]...")
