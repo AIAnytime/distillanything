@@ -130,9 +130,9 @@ PASS: loss 2.237 -> 2.077 over 30 steps
 
 **Hidden-state KD at this scale (v0.5, same split, same judge):** adding feature matching (`recipes/mac-hidden-kd.yaml`) scored **79.2%** retention (3 wins / 16 ties / 5 losses) vs the logit-only **79.2%** (2/17/5), token agreement 81.9% vs 81.6% — parity. Twelve optimizer steps is too few for projectors to pay off; the denser signal is built for real training runs, not the quickstart. We publish the wash rather than cherry-picking — when we have a scale where it wins, you'll see that number here.
 
-This is the quickstart, not a leaderboard claim — 60 records and 8 optimizer steps prove the loop runs on a laptop, not the ceiling of the method.
+This is the quickstart, not a leaderboard claim — 97 training records and 12 optimizer steps prove the loop runs on a laptop, not the ceiling of the method.
 
-**Honest-by-construction evals:** the judge sees answers blind and judges each pair twice with positions swapped — a judge that always prefers "Answer A" nets out to a tie (that exact adversarial case is in the test suite). Disagreements and unparseable verdicts count as ties, never wins. Every report card also audits itself for train/eval contamination and prints the overlap, so you can't accidentally publish numbers measured on training data. 64 tests run fully offline against tiny random models.
+**Honest-by-construction evals:** the judge sees answers blind and judges each pair twice with positions swapped — a judge that always prefers "Answer A" nets out to a tie (that exact adversarial case is in the test suite). Disagreements and unparseable verdicts count as ties, never wins. Every report card also audits itself for train/eval contamination and prints the overlap, so you can't accidentally publish numbers measured on training data. 69 tests run fully offline against tiny random models.
 
 ## The report card
 
@@ -346,7 +346,7 @@ Everything in this repo is and stays Apache-2.0. A hosted layer (GPU orchestrati
 
 ```bash
 uv venv && uv pip install -e ".[dev]"
-pytest            # 36 tests, fully offline (tiny random models, fake judges)
+pytest            # 69 tests, fully offline (tiny random models, fake judges)
 distill smoke     # end-to-end pipeline check on your hardware
 ```
 
