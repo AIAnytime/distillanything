@@ -6,8 +6,10 @@ import { JobsDrawer } from "./JobsDrawer";
 import { ComparePage } from "./pages/ComparePage";
 import { DatasetsPage } from "./pages/DatasetsPage";
 import { NewRunPage } from "./pages/NewRunPage";
+import { RemoteRunPage } from "./pages/RemoteRunPage";
 import { RunDetailPage } from "./pages/RunDetailPage";
 import { RunsPage } from "./pages/RunsPage";
+import { SettingsPage } from "./pages/SettingsPage";
 import type { Job } from "./types";
 
 function Topbar({ onJobs }: { onJobs: () => void }) {
@@ -56,6 +58,14 @@ function Topbar({ onJobs }: { onJobs: () => void }) {
       </button>
       <button
         className="icon-btn"
+        title="Settings"
+        aria-label="Settings"
+        onClick={() => navigate("/settings")}
+      >
+        ⚙
+      </button>
+      <button
+        className="icon-btn"
         title="Toggle theme"
         aria-label="Toggle theme"
         onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
@@ -79,6 +89,8 @@ export default function App() {
             <Route path="/compare" element={<ComparePage />} />
             <Route path="/datasets" element={<DatasetsPage />} />
             <Route path="/new" element={<NewRunPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/remote/:host/:name" element={<RemoteRunPage />} />
           </Routes>
         </main>
         <JobsDrawer open={jobsOpen} onClose={() => setJobsOpen(false)} />

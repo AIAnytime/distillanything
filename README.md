@@ -13,7 +13,7 @@
   <a href="https://pypi.org/project/distill-anything/"><img src="https://img.shields.io/pypi/v/distill-anything.svg" alt="PyPI"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-green" alt="License: Apache 2.0"></a>
-  <a href="#development"><img src="https://img.shields.io/badge/tests-69%20passing%20offline-brightgreen" alt="Tests"></a>
+  <a href="#development"><img src="https://img.shields.io/badge/tests-85%20passing%20offline-brightgreen" alt="Tests"></a>
   <a href="#whats-real-today-vs-the-vision"><img src="https://img.shields.io/badge/status-alpha-orange" alt="Status: alpha"></a>
   <a href="https://github.com/astral-sh/ruff"><img src="https://img.shields.io/badge/code%20style-ruff-261230" alt="Code style: ruff"></a>
 </p>
@@ -56,7 +56,8 @@ Big models know things. Small models ship. Distill Anything covers the **whole d
 - **Honest evals by default** — `distill generate` holds out an eval split *before* training sees the data, and every report card cross-checks its eval prompts against the run's training set: contamination gets a loud warning, disjoint data gets an explicit ✅
 - **LoRA / QLoRA students** — freeze the base, train adapters: 1–3B students on a 16GB laptop (`[lora]` extra); 4-bit QLoRA on CUDA (`[qlora]`)
 - **Hardware-aware** — CUDA (bf16) → Apple Silicon MPS → CPU, detected automatically; teachers load in half precision on GPU/MPS
-- **Dashboard** — `distill ui`: live loss curves for every run (CLI-started ones too), report cards, run comparison, and a control plane to launch/stop training and generate datasets from the browser (`[ui]` extra)
+- **Dashboard** — `distill ui`: live loss curves for every run (CLI-started ones too), report cards, run comparison, and a control plane to launch/stop training and generate datasets from the browser (`[ui]` extra) — works from Colab/Jupyter too
+- **Survivable history** — optionally mirror runs/metrics/reports to any Postgres (Neon works) so history outlives ephemeral machines; every synced host shows up in one dashboard (`[db]` extra)
 
 ## How it works (30 seconds)
 
@@ -132,7 +133,7 @@ PASS: loss 2.237 -> 2.077 over 30 steps
 
 This is the quickstart, not a leaderboard claim — 97 training records and 12 optimizer steps prove the loop runs on a laptop, not the ceiling of the method.
 
-**Honest-by-construction evals:** the judge sees answers blind and judges each pair twice with positions swapped — a judge that always prefers "Answer A" nets out to a tie (that exact adversarial case is in the test suite). Disagreements and unparseable verdicts count as ties, never wins. Every report card also audits itself for train/eval contamination and prints the overlap, so you can't accidentally publish numbers measured on training data. 69 tests run fully offline against tiny random models.
+**Honest-by-construction evals:** the judge sees answers blind and judges each pair twice with positions swapped — a judge that always prefers "Answer A" nets out to a tie (that exact adversarial case is in the test suite). Disagreements and unparseable verdicts count as ties, never wins. Every report card also audits itself for train/eval contamination and prints the overlap, so you can't accidentally publish numbers measured on training data. 85 tests run fully offline against tiny random models.
 
 ## The report card
 
@@ -162,6 +163,37 @@ One command starts a local dashboard over your `runs/` and `data/` directories:
 - **Control plane** — a New-run wizard (the form *is* the recipe YAML, saved into the run dir), teacher-driven dataset generation with judge gating, and stop buttons. One training job at a time by default — the right call on a 16GB laptop; extra submissions queue.
 
 **Security model** (the dashboard can spawn training processes, so it gets the Jupyter treatment, not the "it's only local" treatment): binds `127.0.0.1` only by default; a per-session bearer token is always required — even on localhost — and is auto-generated and embedded in the URL it prints; Host-header allowlisting blocks DNS-rebinding; strict CSP/security headers; every client-supplied name is sandbox-resolved inside your runs/data directories; API keys for teachers are read from the environment where `distill ui` runs — the UI never asks for, stores, or returns them. Binding beyond localhost refuses to start without an explicit `--token` you chose yourself.
+
+### Run it from Colab or Jupyter
+
+The dashboard is just a token-authed local server, so it works anywhere a notebook does. On **Colab**, serve it through Colab's own authenticated proxy:
+
+```python
+import secrets
+TOKEN = secrets.token_urlsafe(32)
+get_ipython().system_raw(f"distill ui --no-browser --token {TOKEN} &")
+
+from google.colab import output
+print(output.eval_js("google.colab.kernel.proxyPort(7326)") + f"?token={TOKEN}")
+```
+
+Open the printed URL and you're watching your Colab training live, with the same token auth as everywhere else. On a plain remote Jupyter box, tunnel instead (e.g. `cloudflared tunnel --url http://127.0.0.1:7326`) and allow the tunnel's hostname explicitly:
+
+```bash
+distill ui --no-browser --allow-host '*.trycloudflare.com'
+```
+
+`--allow-host` widens only the Host-header (anti-DNS-rebinding) check — exact names or one `*.suffix` wildcard level. The bearer token is still required on every request, no exceptions.
+
+### Keep the history when the machine doesn't (Postgres/Neon sync)
+
+`runs/` on a Colab VM dies with the VM. Point the dashboard at any Postgres database — a [Neon](https://neon.tech) free project works — and every run's status, metrics, and report card are mirrored there as they happen:
+
+- **Settings (⚙ in the dashboard)** → paste the connection string once. The schema is created and migrated automatically — you never run SQL. The credential is stored on the machine running `distill ui` with owner-only permissions (or supply it as the `DISTILL_DB_URL` env var, which always wins) and is **never sent to the browser or returned by the API**.
+- Every machine syncing to the same database appears under **Synced history** on the Runs page, tagged by host — train on Colab, review the loss curves from your Mac after the VM is gone.
+- CLI equivalents: `distill db status` and `distill db sync` (`pip install "distill-anything[db]"`).
+
+Local files stay the source of truth; the database is a one-way mirror. Nothing in the training path depends on it, and removing it deletes nothing.
 
 ## Examples, notebook, and tests-as-docs
 
@@ -294,6 +326,7 @@ The architecture diagram is the north star, not the changelog. Every box, mapped
 | Core Capabilities | Reproducible Pipelines | ✅ | Seeded runs + full config snapshot saved alongside the checkpoint |
 | Core Capabilities | Multi-Teacher Support, Multi-Modal, Distributed Training, Quantization/Export, Experiment Tracking | 🗺️ | One teacher/one device per run today; text-only; no W&B/MLflow hooks |
 | Integrations | Hugging Face | ✅ | Models, tokenizers, chat templates |
+| Integrations | Postgres / Neon (run-history sync) | ✅ | Optional one-way mirror; files stay the source of truth (v0.6) |
 | Integrations | Weights & Biases, MLflow, S3/GCS/Azure Blob, Docker/Kubernetes | 🗺️ | Not integrated yet |
 | How you interact | Python SDK, CLI | ✅ | `Student().learn(...)` and `distill ...` |
 | How you interact | Web UI | ✅ | `distill ui` — live runs, report cards, compare, launch/stop jobs (v0.3) |
@@ -335,6 +368,7 @@ Beyond closing the 🗺️ gaps in the status table:
 - [x] **LoRA/QLoRA students** — distill into 1–3B students on 16GB of RAM *(shipped in v0.2)*
 - [x] **Web dashboard** — live runs, report cards, and a local control plane (`distill ui`) *(shipped in v0.3)*
 - [x] **Hidden-state / feature KD with learned projectors** *(shipped in v0.5)*
+- [x] **Remote-friendly dashboard** — Colab/Jupyter proxies + Postgres/Neon run-history sync *(shipped in v0.6)*
 - [ ] Cross-tokenizer logit distillation (ULD)
 - [ ] Multi-teacher voting and ensembling
 - [ ] VLM, embedding, and reranker distillation
@@ -346,7 +380,7 @@ Everything in this repo is and stays Apache-2.0. A hosted layer (GPU orchestrati
 
 ```bash
 uv venv && uv pip install -e ".[dev]"
-pytest            # 69 tests, fully offline (tiny random models, fake judges)
+pytest            # 85 tests, fully offline (tiny random models, fake judges)
 distill smoke     # end-to-end pipeline check on your hardware
 ```
 

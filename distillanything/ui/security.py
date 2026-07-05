@@ -42,12 +42,30 @@ def generate_token() -> str:
 
 
 class SecurityMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app, token: str, enforce_host_allowlist: bool = True):
+    def __init__(
+        self,
+        app,
+        token: str,
+        enforce_host_allowlist: bool = True,
+        extra_allowed_hosts: tuple[str, ...] = (),
+    ):
         super().__init__(app)
         if not token:
             raise ValueError("SecurityMiddleware requires a non-empty token")
         self._token = token
         self._enforce_host = enforce_host_allowlist
+        # `--allow-host` opt-ins for notebook proxies and tunnels. Exact names,
+        # or "*.suffix" to allow one level of unpredictable subdomain (Colab's
+        # proxy and cloudflared both mint random hostnames under a fixed zone).
+        self._extra_exact = {h.lower() for h in extra_allowed_hosts if not h.startswith("*.")}
+        self._extra_suffixes = tuple(
+            h.lower()[1:] for h in extra_allowed_hosts if h.startswith("*.")
+        )  # "*.foo.com" -> ".foo.com"
+
+    def _host_allowed(self, host: str) -> bool:
+        if host in LOOPBACK_HOSTS or host in self._extra_exact:
+            return True
+        return any(host.endswith(suffix) for suffix in self._extra_suffixes)
 
     def _authorized(self, request: Request) -> bool:
         header = request.headers.get("authorization", "")
@@ -59,7 +77,7 @@ class SecurityMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next):
         host = request.headers.get("host", "").rsplit(":", 1)[0].lower()
-        if self._enforce_host and host not in LOOPBACK_HOSTS:
+        if self._enforce_host and not self._host_allowed(host):
             return JSONResponse({"detail": "host not allowed"}, status_code=403)
 
         if request.url.path.startswith("/api") and request.url.path != "/api/health":

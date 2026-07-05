@@ -303,3 +303,113 @@ def test_generate_job_validates_specs(env):
 def test_stop_unknown_job_404(env):
     client, *_ = env
     assert client.post("/api/jobs/nope/stop").status_code == 404
+
+
+# ------------------------------------------------------------ database sync
+
+
+@pytest.fixture()
+def db_env(tmp_path):
+    """App with an injected MemoryStore mirror — the full settings/remote/sync
+    surface, no Postgres required."""
+    from distillanything.db.store import MemoryStore
+    from distillanything.db.sync import DbState
+
+    runs_root = tmp_path / "runs"
+    data_root = tmp_path / "data"
+    runs_root.mkdir()
+    data_root.mkdir()
+    _make_run(runs_root, "run-a")
+    _make_run(runs_root, "run-b", state="running")
+    state = DbState(
+        MemoryStore(), "injected", dsn="postgresql://alice:sup3r-secret@db.example.com/history"
+    )
+    manager = JobManager(max_concurrent=1)
+    app = create_app(
+        runs_root, data_root, token=TOKEN, jobs=manager, serve_static=False,
+        db_state=state, db_config_path=tmp_path / "config.json",
+    )
+    client = TestClient(app, base_url="http://127.0.0.1")
+    client.headers["Authorization"] = f"Bearer {TOKEN}"
+    yield client, state
+    manager.shutdown()
+
+
+def test_db_settings_never_return_the_credential(db_env):
+    client, _state = db_env
+    r = client.get("/api/settings/db?probe=1")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["configured"] is True
+    assert body["server"] == {"user": "alice", "host": "db.example.com", "dbname": "history"}
+    assert "sup3r-secret" not in r.text  # the password never leaves the server
+
+
+def test_db_settings_reject_bad_urls_and_env_lock(db_env, monkeypatch):
+    client, _state = db_env
+    assert client.post("/api/settings/db", json={"url": "mysql://u@h/db"}).status_code == 400
+    assert client.post("/api/settings/db", json={"url": "postgresql://"}).status_code == 400
+    monkeypatch.setenv("DISTILL_DB_URL", "postgresql://env@h/db")
+    assert client.post(
+        "/api/settings/db", json={"url": "postgresql://u@h/db"}
+    ).status_code == 409
+    assert client.delete("/api/settings/db").status_code == 409
+
+
+def test_db_sync_now_and_remote_reads(db_env):
+    client, state = db_env
+    r = client.post("/api/db/sync")
+    assert r.status_code == 200
+    assert r.json()["synced"]["runs"] == 2
+
+    runs = client.get("/api/remote/runs").json()
+    assert {x["name"] for x in runs} == {"run-a", "run-b"}
+    host = runs[0]["host"]
+
+    detail = client.get(f"/api/remote/runs/{host}/run-a").json()
+    assert detail["state"] == "completed" and detail["report"] is None
+
+    metrics = client.get(f"/api/remote/runs/{host}/run-a/metrics").json()
+    assert [m["step"] for m in metrics] == [1, 2, 3]
+
+    assert client.get(f"/api/remote/runs/{host}/ghost").status_code == 404
+    assert client.get("/api/remote/runs/../evil/x").status_code in (400, 404)
+    assert state.last_sync is not None
+
+
+def test_remote_reads_400_when_unconfigured(db_env):
+    client, state = db_env
+    state.set_store(None, None)
+    assert client.get("/api/remote/runs").status_code == 400
+    assert client.post("/api/db/sync").status_code == 400
+    assert client.get("/api/settings/db").json()["configured"] is False
+
+
+def test_db_settings_delete_clears_file_credential(db_env):
+    client, _state = db_env
+    r = client.delete("/api/settings/db")
+    assert r.status_code == 200
+    assert r.json()["configured"] is False
+    assert client.get("/api/remote/runs").status_code == 400
+
+
+def test_extra_allowed_hosts_wildcard(tmp_path):
+    runs_root, data_root = tmp_path / "runs", tmp_path / "data"
+    runs_root.mkdir()
+    data_root.mkdir()
+    manager = JobManager(max_concurrent=1)
+    app = create_app(
+        runs_root, data_root, token=TOKEN, jobs=manager, serve_static=False,
+        allowed_hosts=("*.trycloudflare.com", "myproxy.example.com"),
+    )
+    try:
+        for host, expected in [
+            ("http://rnd-abc-123.trycloudflare.com", 200),
+            ("http://myproxy.example.com", 200),
+            ("http://evil.example.com", 403),
+        ]:
+            c = TestClient(app, base_url=host)
+            c.headers["Authorization"] = f"Bearer {TOKEN}"
+            assert c.get("/api/runs").status_code == expected, host
+    finally:
+        manager.shutdown()

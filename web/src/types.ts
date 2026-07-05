@@ -91,6 +91,26 @@ export interface DatasetPage {
   records: Record<string, unknown>[];
 }
 
+export interface DbSettings {
+  configured: boolean;
+  source: "env" | "file" | "injected" | null;
+  env_locked: boolean;
+  host_label: string;
+  server: { user: string | null; host: string | null; dbname: string | null } | null;
+  last_sync: number | null;
+  last_error: string | null;
+  db?: { schema_version: number; runs: number; metrics: number };
+}
+
+export interface RemoteRun extends RunSummary {
+  host: string;
+  synced_at: number;
+}
+
+export interface RemoteRunDetail extends RemoteRun {
+  report: Report | null;
+}
+
 export interface Job {
   id: string;
   kind: string;

@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import os
 import re
 from pathlib import Path
 from typing import Optional
@@ -26,6 +27,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from distillanything import __version__
 from distillanything.config import DistillConfig
+from distillanything.db import store as dbstore
+from distillanything.db.sync import DbState, SyncWorker, local_host_label
 from distillanything.ui import runsource
 from distillanything.ui.jobs import JobManager, cli_argv, reconcile_interrupted_runs
 from distillanything.ui.runsource import InvalidName, safe_child
@@ -71,6 +74,10 @@ class GenerateJobRequest(_RequestModel):
 
     _teacher = field_validator("teacher")(_check_spec)
     _judge = field_validator("judge")(_check_spec)
+
+
+class DbSettingsRequest(_RequestModel):
+    url: str  # a Postgres connection string; stored server-side, never returned
 
 
 class ReportJobRequest(_RequestModel):
@@ -121,21 +128,51 @@ def create_app(
     jobs: Optional[JobManager] = None,
     enforce_host_allowlist: bool = True,
     serve_static: bool = True,
+    allowed_hosts: tuple[str, ...] = (),
+    db_state: Optional[DbState] = None,
+    db_config_path: Optional[Path] = None,
+    db_sync_interval: float = 5.0,
 ) -> FastAPI:
     runs_root = Path(runs_root).resolve()
     data_root = Path(data_root).resolve()
     jobs = jobs or JobManager()
     jobs_log_dir = runs_root / ".jobs"
+    db_state = db_state or DbState()
+    host_label = local_host_label()
+    sync_worker = SyncWorker(db_state, runs_root, host_label, interval=db_sync_interval)
+
+    def _bootstrap_db() -> None:
+        """Connect to a pre-configured database off the request path — a
+        suspended Neon endpoint can take seconds to wake and must not delay boot."""
+        url, source = dbstore.resolve_db_url(db_config_path)
+        if not url:
+            return
+        try:
+            store = dbstore.PgStore(url)
+            store.connect()
+            db_state.set_store(store, source, dsn=url)
+        except Exception as exc:  # noqa: BLE001 — surfaced in /api/settings/db
+            with db_state.lock:
+                db_state.last_error = f"{type(exc).__name__}: {exc}"[:300]
 
     @contextlib.asynccontextmanager
     async def lifespan(app: FastAPI):
         reconcile_interrupted_runs(runs_root)
+        if db_state.store is None:
+            import threading
+
+            threading.Thread(target=_bootstrap_db, daemon=True, name="db-bootstrap").start()
+        sync_worker.start()
         yield
+        sync_worker.stop()
         jobs.shutdown()
+        if db_state.store is not None:
+            db_state.store.close()
 
     app = FastAPI(title="Distill Anything", version=__version__, lifespan=lifespan, docs_url=None,
                   redoc_url=None, openapi_url=None)
-    app.add_middleware(SecurityMiddleware, token=token, enforce_host_allowlist=enforce_host_allowlist)
+    app.add_middleware(SecurityMiddleware, token=token, enforce_host_allowlist=enforce_host_allowlist,
+                       extra_allowed_hosts=tuple(allowed_hosts))
 
     def _run_dir(name: str) -> Path:
         try:
@@ -238,6 +275,121 @@ def create_app(
             return runsource.read_dataset_records(data_root, name, offset, min(limit, 200))
         except FileNotFoundError:
             raise HTTPException(404, "dataset not found") from None
+
+    # -------------------------------------------------------- database sync
+    # The connection string is a credential: accepted once, stored server-side
+    # (env var or 0600 config file), and never present in any response.
+
+    def _env_locked() -> bool:
+        return bool(os.environ.get(dbstore.ENV_VAR, "").strip())
+
+    def _db_status(probe: bool = False) -> dict:
+        with db_state.lock:
+            store, source, dsn = db_state.store, db_state.source, db_state.dsn
+            last_sync, last_error = db_state.last_sync, db_state.last_error
+        out = {
+            "configured": store is not None,
+            "source": source,
+            "env_locked": _env_locked(),
+            "host_label": host_label,
+            "server": dbstore.redact_dsn(dsn) if dsn else None,
+            "last_sync": last_sync,
+            "last_error": last_error,
+        }
+        if probe and store is not None:
+            try:
+                out["db"] = store.status()
+            except Exception as exc:  # noqa: BLE001
+                out["last_error"] = f"{type(exc).__name__}: {exc}"[:300]
+        return out
+
+    @app.get("/api/settings/db")
+    def db_settings(probe: bool = False):
+        return _db_status(probe=probe)
+
+    @app.post("/api/settings/db")
+    def db_settings_set(body: DbSettingsRequest):
+        if _env_locked():
+            raise HTTPException(
+                409, f"database is configured via {dbstore.ENV_VAR}; unset it to manage it from the UI"
+            )
+        try:
+            dbstore.validate_db_url(body.url)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        try:
+            store = dbstore.PgStore(body.url)
+            store.connect()  # migrates the app-owned schema; users never run SQL
+        except Exception as exc:
+            raise HTTPException(400, f"connection failed — {type(exc).__name__}: {exc}"[:300]) from exc
+        dbstore.save_db_url(body.url, db_config_path)
+        db_state.set_store(store, "file", dsn=body.url)
+        return _db_status(probe=True)
+
+    @app.delete("/api/settings/db")
+    def db_settings_clear():
+        if _env_locked():
+            raise HTTPException(
+                409, f"database is configured via {dbstore.ENV_VAR}; unset it to manage it from the UI"
+            )
+        dbstore.clear_db_url(db_config_path)
+        db_state.set_store(None, None, dsn=None)
+        return _db_status()
+
+    @app.post("/api/db/sync")
+    def db_sync_now():
+        if db_state.store is None:
+            raise HTTPException(400, "no database configured")
+        try:
+            counts = db_state.sync_now(runs_root, host=host_label)
+        except Exception as exc:
+            raise HTTPException(502, f"sync failed — {type(exc).__name__}: {exc}"[:300]) from exc
+        return {"synced": counts, **_db_status()}
+
+    def _remote_store():
+        store = db_state.store
+        if store is None:
+            raise HTTPException(400, "no database configured")
+        return store
+
+    def _remote_key(host: str, name: str) -> tuple[str, str]:
+        for value in (host, name):
+            if not runsource._NAME_RE.match(value):
+                raise HTTPException(400, f"invalid name: {value!r}")
+        return host, name
+
+    @app.get("/api/remote/runs")
+    def remote_runs():
+        try:
+            return _remote_store().list_runs()
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(502, f"database error — {type(exc).__name__}: {exc}"[:300]) from exc
+
+    @app.get("/api/remote/runs/{host}/{name}")
+    def remote_run(host: str, name: str):
+        store = _remote_store()
+        key = _remote_key(host, name)
+        try:
+            run = store.get_run(*key)
+            if run is None:
+                raise HTTPException(404, "remote run not found")
+            run["report"] = store.get_report(*key)
+            return run
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(502, f"database error — {type(exc).__name__}: {exc}"[:300]) from exc
+
+    @app.get("/api/remote/runs/{host}/{name}/metrics")
+    def remote_run_metrics(host: str, name: str):
+        store = _remote_store()
+        key = _remote_key(host, name)
+        try:
+            return store.get_metrics(*key)
+        except Exception as exc:
+            raise HTTPException(502, f"database error — {type(exc).__name__}: {exc}"[:300]) from exc
 
     # ------------------------------------------------------------------- jobs
 
@@ -388,6 +540,7 @@ def run_server(
     port: int = 7326,
     token: Optional[str] = None,
     open_browser: bool = True,
+    allow_hosts: tuple[str, ...] = (),
 ) -> None:
     """Entry point used by `distill ui`."""
     import webbrowser
@@ -408,6 +561,7 @@ def run_server(
     app = create_app(
         Path(runs_root), Path(data_root), token=token,
         enforce_host_allowlist=is_loopback_bind,
+        allowed_hosts=tuple(allow_hosts),
     )
     url = f"http://{'127.0.0.1' if is_loopback_bind else host}:{port}/?token={token}"
     # flush=True: uvicorn.run never returns, so without it the URL can sit in a

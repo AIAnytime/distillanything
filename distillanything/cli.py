@@ -202,6 +202,12 @@ def ui(
         None, help="Session token; a strong one is auto-generated if omitted"
     ),
     no_browser: bool = typer.Option(False, "--no-browser", help="Don't open the browser"),
+    allow_host: list[str] = typer.Option(
+        [],
+        "--allow-host",
+        help="Extra Host header(s) to accept, for notebook proxies/tunnels — "
+        "exact names or '*.suffix' wildcards (e.g. '*.googleusercontent.com')",
+    ),
 ):
     """Launch the dashboard: live runs, report cards, and a control plane for jobs."""
     try:
@@ -210,7 +216,65 @@ def ui(
         console.print('[red]The dashboard needs extras:[/] pip install "distill-anything[ui]"')
         raise typer.Exit(1) from None
 
-    run_server(runs_dir, data_dir, host=host, port=port, token=token, open_browser=not no_browser)
+    run_server(
+        runs_dir, data_dir, host=host, port=port, token=token,
+        open_browser=not no_browser, allow_hosts=tuple(allow_host),
+    )
+
+
+db_app = typer.Typer(help="Mirror run history to Postgres/Neon (optional; files stay the source of truth)")
+app.add_typer(db_app, name="db")
+
+
+def _db_store_or_exit():
+    from distillanything.db import store as dbstore
+
+    url, source = dbstore.resolve_db_url()
+    if not url:
+        console.print(
+            "[yellow]No database configured.[/] Set the [bold]DISTILL_DB_URL[/] environment "
+            "variable to a Postgres/Neon connection string, or use the dashboard's Settings page."
+        )
+        raise typer.Exit(1)
+    try:
+        store = dbstore.PgStore(url)
+        store.connect()
+    except RuntimeError as exc:  # missing psycopg
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(1) from None
+    except Exception as exc:
+        console.print(f"[red]Connection failed:[/] {type(exc).__name__}: {exc}")
+        raise typer.Exit(1) from None
+    return store, source, dbstore.redact_dsn(url)
+
+
+@db_app.command("status")
+def db_status():
+    """Show the configured database and what's mirrored there."""
+    store, source, server = _db_store_or_exit()
+    info = store.status()
+    console.print(
+        f"Connected to [bold]{server['host']}[/] db=[bold]{server['dbname']}[/] "
+        f"(source: {source}) — schema v{info['schema_version']}, "
+        f"{info['runs']} runs, {info['metrics']} metric rows mirrored."
+    )
+    store.close()
+
+
+@db_app.command("sync")
+def db_sync(
+    runs_dir: str = typer.Option("runs", help="Directory containing your training runs"),
+):
+    """One-shot mirror of every local run into the database."""
+    from distillanything.db.sync import local_host_label, sync_all
+
+    store, _source, server = _db_store_or_exit()
+    counts = sync_all(store, Path(runs_dir))
+    console.print(
+        f"Synced [bold]{counts['runs']}[/] runs as host [bold]{local_host_label()}[/] to "
+        f"{server['host']}: {counts['metrics']} new metric rows, {counts['reports']} reports."
+    )
+    store.close()
 
 
 @app.command()
